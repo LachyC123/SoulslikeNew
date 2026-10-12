@@ -1,10 +1,11 @@
 import { Rng, stream } from '../core/rng';
+import { ENEMIES } from '../data/enemies';
 import { Room, RoomRole, T, TILE, TileMap } from './tiles';
 
 /** Bump when generation output changes so saves can detect incompatible floors. */
-export const GEN_VERSION = 1;
+export const GEN_VERSION = 2;
 
-export type EnemyKind = 'root' | 'moth' | 'thornling';
+export type EnemyKind = 'root' | 'moth' | 'thornling' | 'sentinel' | 'bulb' | 'wisp' | 'beetle';
 
 export interface EnemySpawn {
   id: number;
@@ -25,7 +26,7 @@ export interface ChestSpawn {
 
 export interface FeatureSpawn {
   id: number;
-  kind: 'spring';
+  kind: 'spring' | 'shrine' | 'merchant';
   x: number;
   y: number;
   room: number;
@@ -259,10 +260,19 @@ function tryGenerate(seed: number, floor: number, attempt: number): FloorPlan | 
   exitRoom.role = boss ? 'boss' : 'exit';
   const branchRooms = branchCells.map((c) => roomByCell.get(key(c))!);
   layout.shuffle(branchRooms);
-  const branchRoles: RoomRole[] = ['discovery', 'guarded', 'recovery', 'discovery', 'combat', 'connector'];
+  const branchRoles: RoomRole[] = [
+    'discovery',
+    'guarded',
+    layout.chance(0.8) ? 'shop' : 'combat',
+    layout.chance(0.65) ? 'shrine' : 'discovery',
+    'recovery',
+    'combat',
+    'connector',
+  ];
   branchRooms.forEach((r, i) => {
     r.role = branchRoles[i] ?? 'combat';
     if (r.w <= 9 && r.role === 'combat') r.role = 'connector';
+    if ((r.role === 'shop' || r.role === 'shrine') && (r.w < 8 || r.h < 7)) r.role = 'discovery';
   });
   if (boss) {
     // A preparation space just before the arena: recovery is guaranteed.
@@ -336,24 +346,26 @@ function tryGenerate(seed: number, floor: number, attempt: number): FloorPlan | 
 
   const pool = enemyPool(floor);
   for (const r of rooms) {
-    if (r.role === 'arrival' || r.role === 'boss' || r.role === 'recovery') continue;
+    if (r.role === 'arrival' || r.role === 'boss' || r.role === 'recovery' || r.role === 'shop' || r.role === 'shrine') continue;
     let budget = 0;
     let elites = 0;
-    if (r.role === 'combat') budget = 2 + floor * 0.6 + enc.range(0, 1.2);
-    else if (r.role === 'exit') budget = 1.5 + floor * 0.5;
+    if (r.role === 'combat') budget = 3.4 + floor * 1.3 + enc.range(0, 1.6);
+    else if (r.role === 'exit') budget = 3 + floor * 1.1;
     else if (r.role === 'guarded') {
-      budget = 2 + floor * 0.7;
-      elites = 1;
-    } else if (r.role === 'connector') budget = enc.chance(0.5) ? 1 : 0;
-    else if (r.role === 'discovery') budget = enc.chance(0.4) ? 1.2 : 0;
-    // The first fight on the first floor is gentle.
-    if (floor === 1 && r.depth === 1) budget = Math.min(budget, 1);
-    budget = Math.min(budget, Math.floor((r.w * r.h) / 22));
+      budget = 4 + floor * 1.3;
+      elites = floor >= 3 ? 2 : 1;
+    } else if (r.role === 'connector') budget = enc.chance(0.75) ? 1.5 + floor * 0.4 : 0;
+    else if (r.role === 'discovery') budget = enc.chance(0.55) ? 2 + floor * 0.4 : 0;
+    // The first fight on the first floor is a little gentler.
+    if (floor === 1 && r.depth === 1) budget = Math.min(budget, 2.2);
+    budget = Math.min(budget, (r.w * r.h) / 15);
+    if (r.role !== 'guarded' && floor >= 2 && enc.chance(0.15 * floor)) elites = 1;
 
     let guardLoop = 0;
     while (budget >= 0.99 && guardLoop++ < 20) {
-      const kind = enc.weighted(pool.filter(([k]) => cost(k) <= budget + 0.01));
-      if (!kind) break;
+      const affordable = pool.filter(([k]) => cost(k) <= budget + 0.01);
+      if (!affordable.length) break;
+      const kind = enc.weighted(affordable);
       const t = findOpenTile(map, r, enc, false, 1, occupied, 2);
       if (!t) break;
       occupied.push(t);
@@ -376,11 +388,12 @@ function tryGenerate(seed: number, floor: number, attempt: number): FloorPlan | 
     occupied.push(t);
     chests.push({ id: nextId++, x: (t[0] + 0.5) * TILE, y: (t[1] + 0.5) * TILE, room: r.id, guarded: r.role === 'guarded' });
   }
-  for (const r of rooms.filter((r) => r.role === 'recovery')) {
+  for (const r of rooms.filter((r) => r.role === 'recovery' || r.role === 'shop' || r.role === 'shrine')) {
     const t = findOpenTile(map, r, layout, true, 1, occupied, 2);
     if (!t) continue;
     occupied.push(t);
-    features.push({ id: nextId++, kind: 'spring', x: (t[0] + 0.5) * TILE, y: (t[1] + 0.5) * TILE, room: r.id });
+    const kind = r.role === 'shop' ? 'merchant' : r.role === 'shrine' ? 'shrine' : 'spring';
+    features.push({ id: nextId++, kind, x: (t[0] + 0.5) * TILE, y: (t[1] + 0.5) * TILE, room: r.id });
   }
 
   // 8. Cosmetic detail in permitted zones (separate stream: never shifts loot).
@@ -405,18 +418,26 @@ function tryGenerate(seed: number, floor: number, attempt: number): FloorPlan | 
 }
 
 function cost(k: EnemyKind): number {
-  return k === 'moth' ? 1.5 : k === 'thornling' ? 1.25 : 1;
+  return ENEMIES[k].cost;
 }
 
 function enemyPool(floor: number): [EnemyKind, number][] {
-  if (floor <= 1) return [
-    ['root', 3],
-    ['moth', 1.5],
-  ];
+  if (floor <= 1)
+    return [
+      ['root', 3],
+      ['moth', 1.6],
+      ['thornling', 1.4],
+      ['beetle', 0.6],
+      ['bulb', 0.6],
+    ];
   return [
-    ['root', 3],
+    ['root', 2.4],
     ['moth', 2],
     ['thornling', 2],
+    ['beetle', 1.4],
+    ['bulb', 1.3],
+    ['wisp', 1.2 + floor * 0.2],
+    ['sentinel', 0.7 + floor * 0.3],
   ];
 }
 

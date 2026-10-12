@@ -8,7 +8,7 @@ export const enum T {
   Pillar = 4,
 }
 
-export type RoomRole = 'arrival' | 'combat' | 'discovery' | 'recovery' | 'guarded' | 'exit' | 'connector' | 'boss';
+export type RoomRole = 'arrival' | 'combat' | 'discovery' | 'recovery' | 'guarded' | 'exit' | 'connector' | 'boss' | 'shop' | 'shrine';
 
 export interface Room {
   id: number;

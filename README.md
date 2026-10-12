@@ -24,35 +24,28 @@ It's TypeScript, Vite and Canvas 2D, with no runtime dependencies. All art is pi
 | Weapon skill | L / right-click | Drag to aim, release to cast, drop on ✕ to cancel |
 | Swap weapons | Q | ⇄ |
 | Flask | F | Red flask |
+| Relic ability | R | Relic button above the flask |
 | Interact (hold on stairs) | E | Prompt that appears next to your hero |
 | Equipment / map / pause | I / M / Esc | Bag / minimap / ❚❚ |
 
-## What's in this first slice
+## What's in the game
 
-This covers milestones 1–2 of the plan, plus much of milestone 3.
-
-- **Verdant Ruins, floors 1–3.** Seeded procedural floors. The generator builds a room graph first: a critical path, branches, a loop, and assigned room purposes (arrival, combat, discovery, guarded, recovery, exit, boss). It then validates each floor (reachable exit and rewards, a safe arrival, room count) and regenerates it if a check fails. Layout, loot, encounter and cosmetic randomness each use a separate seeded stream.
-- **Combat.** Three weapon families with authored combos: sword (balanced), daggers (fast) and hammer (slow, staggering). Each has a skill: Travelling Crescent, Crossing Lunge or Ground Fracture.
-  - Buffered combos and aim assist that stays on the current target.
-  - Dodge can cancel windup and recovery, but not the active hit frames.
-  - Hit-stop and screen shake on heavy impacts.
-- **Enemies.** Rootling (pursuer and slam), Lantern Moth (ranged poison caster) and Thornling (lunging skirmisher), plus elites with mutations (spore burst or frenzied).
-  - Every attack has an amber ground telegraph, and ranged shots show an aim line first.
-  - An attack-token system stops every enemy from committing at once.
-  - You get a protection window after taking a hit.
-- **Boss: the Thorn Warden.** It has three moves: sweep, root charge and thorn eruptions. A missed charge into a wall exposes its core. Phase 2 starts at 50% health. The arena seals when you enter, and frost chills the boss instead of freezing it. After the fight you pick one of three rewards.
-- **Statuses and synergies.** Poison and frost use buildup meters that decay. Poison refreshes rather than stacks. Frost freezes and builds resistance against repeated freezes, and hammers (or Shatterer weapons) shatter frozen foes.
-  - Rings act on explicit events (shatter, kill, dodge). Each effect records its source chain, and chains are capped so they can't loop forever.
-  - Rings: Frost Nova, Spore Bloom, Borrowed Shadow echo, Frost Step and others.
-- **Loot.** Generated weapons, rings, chests and boots with five rarities. Rarity is shown by label and gems, not colour alone.
-  - The comparison screen (Equipped vs Found → Equip / Store / Leave) shows damage per hit, attacks per second, sustained damage, buildup per hit, a plain-language tradeoff line and the synergy sentence.
-  - The backpack holds 12 items; favouriting protects an item from salvage.
-  - Each run guarantees an early alternative weapon and a ring that connects to something you own.
-- **Persistence.** Versioned local saves of the run, floor state (opened chests, kills, items left on the ground) and loot RNG state. The game saves on item transactions, chests, floors, pause and focus loss. Continue restores the floor without duplicating rewards.
-  - Embers are a permanent currency recorded at milestones. They buy upgrades (vigor, flask) with free respec.
-  - Starter weapons unlock through play.
-  - Backups can be exported and imported.
-- **Accessibility and device handling.** Reduced shake, reduced flashes, a lower-effects mode, left-handed controls and a touch on/off/auto setting. The game pauses on blur, the rotate prompt appears in portrait, and first-run hints disappear once you've done what they ask.
+- **Verdant Ruins, floors 1–3**, each a seeded procedural floor (room graph → validation → regenerate if invalid), with merchant and cursed-shrine rooms. Floors 2+ can roll a **floor condition** (Blood Moon, Volatile Air, The Brood, Warded Halls…).
+- **9 weapon families × 3 movesets**: sword, daggers, hammer, spear, scythe, axe, bow, wand and returning blade, each with its own skill (crescent, lunge, fracture, rush, reaping orbit, leap, volley, pattern burst, recall).
+- **Near-endless item variety.** Properties are composed from stats, conditional bonuses and *trigger × effect × element* procs (13 triggers × 15 effects × 5 elements, with rolled magnitudes), plus mythic rule-breakers (twin strikes, phoenix, contagion, stormborn…). Weapons can be dual-element.
+  - A novelty memory, kept across runs, steers generation away from what you've seen recently.
+  - Weapon art is procedurally built from materials and parts, so the inventory illustration matches the in-hand sprite.
+  - A name generator covers common names, epithets and named mythics.
+- **Relic slot** with 12 active abilities (blink, nova, starfall, vortex, spirits, bulwark, stillness, tempest, sentry, quake, warcry, mirror).
+- **Boons**: run-only passives. You choose one of three on every staircase, and can also buy them from merchants or take a cursed pact at a shrine (each pact states its price).
+- **Harder combat.**
+  - 7 enemy families: rootling, moth, thornling, moss sentinel (front shield), spore bulb (mortars), cinder wisp (healer), shellback (charger).
+  - 12 stacking mutations, from armoured and swift to vampiric, splitting, volatile, warded and hulking.
+  - More foes per room, steeper floor scaling, and a 1,500 HP Thorn Warden that summons in phase 2.
+- **Four statuses**: poison (ticks), frost (freeze; heavy hits and crits shatter frozen foes), burn (fast ticks) and shock (interrupts, conducts damage to neighbours). Effects chain through each other with a depth guard.
+- **FX**: filled swing ribbons, pixel-disintegration deaths, lightning arcs, element-coloured novas and explosions, dynamic lights, rarity loot beams with mythic fanfare, combo counter and multi-kill callouts, hit squash, low-health heartbeat, falling leaves and butterflies.
+- **Comparison screen**: damage per hit, attacks per second, sustained damage, buildup per hit, a plain-language tradeoff line and a synergy explanation.
+- **Persistence**: versioned local saves that never duplicate rewards. Embers buy permanent upgrades, and starter weapons unlock when you descend while wielding them.
 
 ## Not done yet (deviations from the plan)
 

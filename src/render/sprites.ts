@@ -102,12 +102,20 @@ export const CHEST_LOOKS: [string, string][] = [
   ['#6a6f86', '#464a5e'],
   ['#8a3f3a', '#5c2926'],
   ['#3f6b78', '#294852'],
+  ['#7a6a9a', '#4e4468'],
+  ['#b0904a', '#7a6030'],
+  ['#3a3a44', '#24242c'],
+  ['#9a5a7a', '#663a52'],
+  ['#4a7a6a', '#2e5246'],
 ];
 export const BOOT_LOOKS: [string, string][] = [
   ['#5a3a26', '#3a2616'],
   ['#9aa6b8', '#6a7486'],
   ['#3d5a2e', '#273c1d'],
   ['#7a4a6a', '#523048'],
+  ['#b08a4a', '#7a5e30'],
+  ['#2e2e38', '#1c1c24'],
+  ['#8a3a2a', '#5a2418'],
 ];
 
 export interface PlayerFrames {
@@ -284,6 +292,100 @@ function thornling(squash: number, step: number, elite: boolean): HTMLCanvasElem
   return P.toCanvas();
 }
 
+
+const STONE = ['#3e4048', '#5e626e', '#8a909e', '#c0c6d2'];
+
+function sentinel(pose: number, step: number, elite: boolean): HTMLCanvasElement {
+  const P = new Painter(28, 30);
+  const cx = 13;
+  const by = 27;
+  // legs
+  P.rect(cx - 4, by - 6 + (step > 0 ? -1 : 0), 3, 6, '#3a3e48');
+  P.rect(cx + 2, by - 6 + (step < 0 ? -1 : 0), 3, 6, '#3a3e48');
+  // body
+  P.blob(cx, by - 12, 7, 7.5, STONE, { tex: (x, y) => (hash2(x, y, 4) - 0.5) * 0.15 });
+  // moss on shoulders
+  for (let i = 0; i < 10; i++) {
+    const x = cx - 6 + ((i * 5) % 13);
+    const y = by - 18 + ((i * 3) % 4);
+    if (P.alpha(x, y)) P.set(x, y, i % 2 ? MOSS[2] : MOSS[1]);
+  }
+  // helm
+  P.blob(cx, by - 21, 5, 5, STONE);
+  P.rect(cx - 3, by - 21, 7, 1, '#141418');
+  P.set(cx - 1, by - 21, elite ? '#ff6a4a' : '#9ae8ff');
+  P.set(cx + 1, by - 21, elite ? '#ff6a4a' : '#9ae8ff');
+  // spear (pose: 0 rest, -1 drawn back, 1 thrust)
+  const sx = cx + 6 + pose * 5;
+  P.line(sx - 10, by - 12, sx + 8, by - 12, '#6a4a2a');
+  P.line(sx + 8, by - 13, sx + 12, by - 12, '#d8dce8');
+  P.line(sx + 8, by - 11, sx + 12, by - 12, '#a8b0c0');
+  // shield
+  P.rect(cx - 9, by - 17, 6, 10, '#5a3a22');
+  P.rect(cx - 8, by - 16, 4, 8, elite ? '#a83a2a' : '#2f6d66');
+  P.set(cx - 6, by - 13, '#e0b04a');
+  P.outline('#14141a');
+  return P.toCanvas();
+}
+
+function bulb(swell: number, open: boolean, elite: boolean): HTMLCanvasElement {
+  const P = new Painter(22, 22);
+  const cx = 11;
+  const by = 19;
+  // leaves
+  P.blob(cx - 5, by - 1, 4, 1.6, MOSS);
+  P.blob(cx + 5, by - 1, 4, 1.6, MOSS);
+  const pod = elite ? ['#4a1a2a', '#7a2a4a', '#b84a7a', '#f08ab0'] : ['#3a1a4a', '#6a2a7a', '#a050b0', '#e090e0'];
+  P.blob(cx, by - 7 - swell, 6 + swell, 7 + swell, pod, { tex: (x) => (Math.sin(x * 1.3) > 0.6 ? -0.15 : 0) });
+  // spots
+  P.set(cx - 3, by - 9 - swell, '#f8d0f0');
+  P.set(cx + 2, by - 6 - swell, '#f8d0f0');
+  // mouth
+  if (open) {
+    P.blob(cx, by - 13 - swell * 2, 3, 1.6, ['#1a0a14', '#3a1a2a', '#9cf05a']);
+    P.set(cx, by - 13 - swell * 2, '#c8ff8a');
+  } else P.rect(cx - 2, by - 13 - swell * 2, 4, 1, '#2a0a20');
+  P.outline('#1a0a14');
+  return P.toCanvas();
+}
+
+function wisp(f: number, bright: boolean, elite: boolean): HTMLCanvasElement {
+  const P = new Painter(20, 22);
+  const cx = 10;
+  const cy = 12;
+  const flame = elite ? ['#6a1a3a', '#c03a5a', '#ff7a7a', '#ffe0d0'] : ['#7a2a10', '#d0581a', '#ffa83a', '#fff0a0'];
+  for (let i = 0; i < 5; i++) {
+    const a = -Math.PI / 2 + (i - 2) * 0.45;
+    const len = 5 + ((i + f) % 3) * 1.5;
+    P.line(cx, cy - 2, cx + Math.cos(a) * len, cy - 2 + Math.sin(a) * len, flame[1 + (i % 2)]);
+  }
+  P.blob(cx, cy, 5.5 + (bright ? 1 : 0), 5.5, flame);
+  P.blob(cx, cy + 0.5, 2.5, 2.5, ['#ffd27a', '#fff6c0', '#ffffff']);
+  P.set(cx - 2, cy, '#3a1a0a');
+  P.set(cx + 2, cy, '#3a1a0a');
+  return P.toCanvas();
+}
+
+function beetle(stretch: number, step: number, elite: boolean): HTMLCanvasElement {
+  const P = new Painter(26, 22);
+  const cx = 13;
+  const by = 18;
+  const shell = elite ? ['#3a1a10', '#6a2e1a', '#a8502a', '#e0904a'] : ['#16242a', '#24424a', '#3a7072', '#7ac0b0'];
+  // legs
+  for (let i = -1; i <= 1; i++) {
+    const o = (i + step) % 2 ? 1 : 0;
+    P.line(cx + i * 4, by - 4, cx + i * 5 - 2, by + o, '#1a1410');
+    P.line(cx + i * 4, by - 4, cx + i * 5 + 2, by + 1 - o, '#1a1410');
+  }
+  P.blob(cx - stretch, by - 7, 9 + stretch, 6, shell, { tex: (x) => (Math.abs(x - cx + stretch) < 1 ? -0.3 : 0) });
+  // head + horn
+  P.blob(cx + 8, by - 6, 3.5, 3.5, ['#1a1410', '#3a2e24', '#5a4a3a']);
+  P.line(cx + 10, by - 8, cx + 13 + stretch, by - 12, '#d8c8a0');
+  P.set(cx + 9, by - 6, elite ? '#ff6a4a' : '#ffcf4a');
+  P.outline('#0a0a0c');
+  return P.toCanvas();
+}
+
 const enemyCache = new Map<string, EnemySprites>();
 
 export function enemySprites(kind: string, elite: boolean): EnemySprites {
@@ -301,6 +403,22 @@ export function enemySprites(kind: string, elite: boolean): EnemySprites {
     frames = [moth(1, false, elite), moth(0.5, false, elite), moth(0.1, false, elite), moth(0.5, false, elite)];
     windup = moth(0.8, true, elite);
     attack = moth(0.2, true, elite);
+  } else if (kind === 'sentinel') {
+    frames = [sentinel(0, 1, elite), sentinel(0, -1, elite)];
+    windup = sentinel(-1, 0, elite);
+    attack = sentinel(1, 0, elite);
+  } else if (kind === 'bulb') {
+    frames = [bulb(0, false, elite), bulb(0.5, false, elite)];
+    windup = bulb(1.5, false, elite);
+    attack = bulb(0, true, elite);
+  } else if (kind === 'wisp') {
+    frames = [wisp(0, false, elite), wisp(1, false, elite), wisp(2, false, elite)];
+    windup = wisp(0, true, elite);
+    attack = wisp(1, true, elite);
+  } else if (kind === 'beetle') {
+    frames = [beetle(0, 0, elite), beetle(0, 1, elite)];
+    windup = beetle(-1, 0, elite);
+    attack = beetle(2, 0, elite);
   } else {
     frames = [thornling(0, 1, elite), thornling(0.1, -1, elite)];
     windup = thornling(0.5, 0, elite);
@@ -316,7 +434,7 @@ export function enemySprites(kind: string, elite: boolean): EnemySprites {
     w,
     h,
     ox: -w / 2,
-    oy: -h + (kind === 'moth' ? -6 : 3),
+    oy: -h + (kind === 'moth' || kind === 'wisp' ? -6 : 3),
   };
   enemyCache.set(key, res);
   return res;

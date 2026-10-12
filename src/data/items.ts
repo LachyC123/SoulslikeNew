@@ -1,257 +1,128 @@
 import { Rng } from '../core/rng';
+import { EL_ADJ, Element, STATUS_ELS, StatusEl } from './elements';
+import { Prop, propSig, propTags, propText, rollProps, RuleId, RULES } from './props';
+import { ALL_FAMILIES, comboFor, FAMILIES, variantOf, WeaponFamily } from './weapons';
+
+export type { WeaponFamily } from './weapons';
+export { FAMILIES } from './weapons';
+export type { Element } from './elements';
 
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'mythic';
-export type Slot = 'weapon' | 'chest' | 'boots' | 'ring';
-export type WeaponFamily = 'sword' | 'daggers' | 'hammer';
-export type Element = 'none' | 'poison' | 'frost';
+export type Slot = 'weapon' | 'chest' | 'boots' | 'ring' | 'relic';
 
 export const RARITIES: Rarity[] = ['common', 'uncommon', 'rare', 'epic', 'mythic'];
-export const RARITY_LABEL: Record<Rarity, string> = {
-  common: 'Common',
-  uncommon: 'Uncommon',
-  rare: 'Rare',
-  epic: 'Epic',
-  mythic: 'Mythic',
-};
+export const RARITY_LABEL: Record<Rarity, string> = { common: 'Common', uncommon: 'Uncommon', rare: 'Rare', epic: 'Epic', mythic: 'Mythic' };
 /** Rarity is never colour-only: UI also shows label + border pattern + gem count. */
 export const RARITY_GEMS: Record<Rarity, number> = { common: 0, uncommon: 1, rare: 2, epic: 3, mythic: 4 };
+export const SLOT_LABEL: Record<Slot, string> = { weapon: 'Weapon', chest: 'Chest', boots: 'Boots', ring: 'Ring', relic: 'Relic' };
 
-export type AffixId =
-  // weapon
-  | 'critChance'
-  | 'swift'
-  | 'keen'
-  | 'shatterer'
-  | 'reaper'
-  | 'venomous'
-  | 'rimed'
-  // chest
-  | 'vitality'
-  | 'thorns'
-  | 'warding'
-  // boots
-  | 'fleet'
-  | 'quickstep'
-  | 'frostStep'
-  // rings
-  | 'frostNova'
-  | 'sporeBloom'
-  | 'shadowEcho'
-  | 'venomHeart'
-  | 'rimeHeart'
-  | 'bloodPrice'
-  | 'luckyStrike';
+export type RelicId = 'blink' | 'nova' | 'meteor' | 'vortex' | 'spirits' | 'bubble' | 'timeslow' | 'storm' | 'turret' | 'quake' | 'warcry' | 'mirror';
 
-export interface Affix {
-  id: AffixId;
-  value: number;
+export interface RelicSpec {
+  ability: RelicId;
+  el: Element;
+  cooldown: number;
+  power: number;
+  count: number;
 }
 
 export interface Item {
   uid: string;
   slot: Slot;
   family?: WeaponFamily;
+  variant?: number;
   name: string;
   rarity: Rarity;
   level: number;
   /** Weapons: damage per hit. */
   damage?: number;
   element: Element;
-  /** Status buildup per hit (weapons). */
+  /** Second element on rare dual-element weapons (buildup is split). */
+  element2?: Element;
   buildup: number;
-  /** Chest: defence; boots: unused. */
   defense?: number;
-  affixes: Affix[];
+  props: Prop[];
   /** Visual seed so the inventory illustration depicts the same object as the world sprite. */
   look: number;
+  mat?: number;
+  relic?: RelicSpec;
   favourite?: boolean;
+  price?: number;
 }
 
 // ---------------------------------------------------------------------------
-// Weapon families: movesets are authored; rolls only scale within a budget.
+// Materials (visual + naming vocabulary)
 
-export interface AttackStep {
-  windup: number;
-  active: number;
-  recovery: number;
-  /** Multiplier of the weapon's per-hit damage. */
-  mul: number;
-  /** Reach in px from player centre. */
-  reach: number;
-  /** Total arc in radians. */
-  arc: number;
-  /** Forward step during the active frames (px). */
-  lunge: number;
-  /** Poise damage → stagger. */
-  poise: number;
-  hitstop: number;
-  shake: number;
-  /** Swing direction, alternates for readable combos. */
-  sweep: 1 | -1;
+export interface Material {
+  name: string;
+  ramp: string[];
 }
-
-export interface FamilyDef {
-  id: WeaponFamily;
-  label: string;
-  heavy: boolean;
-  combo: AttackStep[];
-  baseDamage: [number, number];
-  skill: { id: string; name: string; cooldown: number; desc: string };
-  /** Innate behaviour described in item cards. */
-  innate: string;
-}
-
-const deg = (d: number) => (d * Math.PI) / 180;
-
-export const FAMILIES: Record<WeaponFamily, FamilyDef> = {
-  sword: {
-    id: 'sword',
-    label: 'Sword',
-    heavy: false,
-    baseDamage: [11, 14],
-    combo: [
-      { windup: 0.07, active: 0.08, recovery: 0.2, mul: 1, reach: 24, arc: deg(130), lunge: 6, poise: 12, hitstop: 0.03, shake: 0.6, sweep: 1 },
-      { windup: 0.07, active: 0.08, recovery: 0.2, mul: 1, reach: 24, arc: deg(130), lunge: 6, poise: 12, hitstop: 0.03, shake: 0.6, sweep: -1 },
-      { windup: 0.12, active: 0.1, recovery: 0.32, mul: 1.5, reach: 27, arc: deg(170), lunge: 10, poise: 25, hitstop: 0.05, shake: 1.2, sweep: 1 },
-    ],
-    skill: { id: 'crescent', name: 'Travelling Crescent', cooldown: 5, desc: 'Launch a piercing crescent wave.' },
-    innate: 'Balanced arcs; mobile combos.',
-  },
-  daggers: {
-    id: 'daggers',
-    label: 'Daggers',
-    heavy: false,
-    baseDamage: [6, 8],
-    combo: [
-      { windup: 0.04, active: 0.05, recovery: 0.11, mul: 1, reach: 18, arc: deg(100), lunge: 4, poise: 5, hitstop: 0.015, shake: 0.3, sweep: 1 },
-      { windup: 0.04, active: 0.05, recovery: 0.11, mul: 1, reach: 18, arc: deg(100), lunge: 4, poise: 5, hitstop: 0.015, shake: 0.3, sweep: -1 },
-      { windup: 0.04, active: 0.05, recovery: 0.11, mul: 1, reach: 18, arc: deg(100), lunge: 4, poise: 5, hitstop: 0.015, shake: 0.3, sweep: 1 },
-      { windup: 0.06, active: 0.06, recovery: 0.2, mul: 1.6, reach: 20, arc: deg(140), lunge: 8, poise: 12, hitstop: 0.03, shake: 0.6, sweep: -1 },
-    ],
-    skill: { id: 'lunge', name: 'Crossing Lunge', cooldown: 3.5, desc: 'Dash through foes, cutting twice.' },
-    innate: 'Fast cuts build status quickly.',
-  },
-  hammer: {
-    id: 'hammer',
-    label: 'Hammer',
-    heavy: true,
-    baseDamage: [25, 31],
-    combo: [
-      { windup: 0.36, active: 0.1, recovery: 0.42, mul: 1, reach: 30, arc: deg(170), lunge: 6, poise: 60, hitstop: 0.08, shake: 3, sweep: 1 },
-      { windup: 0.42, active: 0.12, recovery: 0.55, mul: 1.35, reach: 32, arc: deg(200), lunge: 10, poise: 90, hitstop: 0.1, shake: 4, sweep: -1 },
-    ],
-    skill: { id: 'fracture', name: 'Ground Fracture', cooldown: 7, desc: 'Slam the ground: a wide radial shockwave.' },
-    innate: 'Heavy hits shatter frozen foes.',
-  },
-};
-
-/** Attacks per second over a full combo, for honest comparison numbers. */
-export function attackRate(fam: FamilyDef, speedMul = 1): number {
-  const t = fam.combo.reduce((s, c) => s + c.windup + c.active + c.recovery, 0) / speedMul;
-  return fam.combo.length / t;
-}
-
-export function sustainedDps(item: Item, speedMul = 1): number {
-  const fam = FAMILIES[item.family!];
-  const t = fam.combo.reduce((s, c) => s + c.windup + c.active + c.recovery, 0) / (speedMul * itemSpeedMul(item));
-  const total = fam.combo.reduce((s, c) => s + c.mul, 0) * (item.damage ?? 0);
-  return total / t;
-}
-
-export function itemSpeedMul(item: Item): number {
-  const s = item.affixes.find((a) => a.id === 'swift');
-  return 1 + (s ? s.value / 100 : 0);
-}
+export const MATERIALS: Material[] = [
+  { name: 'Steel', ramp: ['#4a5262', '#7d889a', '#b8c2d0', '#eef2f8'] },
+  { name: 'Bronze', ramp: ['#5a3a1a', '#9a6a2a', '#d8a050', '#ffe0a0'] },
+  { name: 'Blackiron', ramp: ['#1a1c24', '#353a46', '#5a6070', '#98a0b2'] },
+  { name: 'Bone', ramp: ['#6a5a40', '#a8987a', '#d8ccb0', '#fff6e0'] },
+  { name: 'Obsidian', ramp: ['#120a1a', '#2a1a3a', '#4a3a6a', '#9a8ac8'] },
+  { name: 'Gilded', ramp: ['#6a4a1a', '#a87a2a', '#e0b04a', '#fff0a0'] },
+  { name: 'Moonsilver', ramp: ['#4a5a7a', '#8aa0c8', '#c8d8f8', '#ffffff'] },
+  { name: 'Verdigris', ramp: ['#1a4a3a', '#2a7a5a', '#5ab08a', '#a8e8c8'] },
+  { name: 'Bloodsteel', ramp: ['#3a0a10', '#7a1a20', '#c03a3a', '#ff9a8a'] },
+  { name: 'Jade', ramp: ['#0a3a2a', '#1a6a4a', '#3aa070', '#9af0c0'] },
+  { name: 'Coral', ramp: ['#5a1a2a', '#a03a4a', '#e07a7a', '#ffd0c0'] },
+  { name: 'Amber', ramp: ['#5a2a0a', '#a0581a', '#e0a03a', '#fff0b0'] },
+];
 
 // ---------------------------------------------------------------------------
-// Affixes: description + where they can roll.
+// Name banks
 
-interface AffixDef {
-  id: AffixId;
-  slots: Slot[];
-  families?: WeaponFamily[];
-  /** Only rolls on weapons of these elements (so a property is never dead weight). */
-  elements?: Element[];
-  roll: (rng: Rng, level: number) => number;
-  text: (v: number) => string;
-  /** Tags used for synergy explanations. */
-  tags: string[];
-}
-
-export const AFFIXES: Record<AffixId, AffixDef> = {
-  critChance: { id: 'critChance', slots: ['weapon', 'ring'], roll: (r) => r.int(6, 12), text: (v) => `+${v}% critical chance`, tags: ['crit'] },
-  swift: { id: 'swift', slots: ['weapon'], roll: (r) => r.int(8, 15), text: (v) => `+${v}% attack speed`, tags: [] },
-  keen: { id: 'keen', slots: ['weapon'], roll: (r) => r.int(10, 20), text: (v) => `+${v}% reach`, tags: [] },
-  shatterer: {
-    id: 'shatterer',
-    slots: ['weapon'],
-    families: ['sword', 'daggers'],
-    roll: () => 1,
-    text: () => 'Finishing combo hits shatter frozen foes',
-    tags: ['shatter'],
-  },
-  reaper: { id: 'reaper', slots: ['weapon'], roll: (r) => r.int(3, 6), text: (v) => `Heal ${v} on kill`, tags: ['kill'] },
-  venomous: { id: 'venomous', slots: ['weapon'], elements: ['poison'], roll: (r) => r.int(20, 35), text: (v) => `+${v}% poison damage`, tags: ['poison'] },
-  rimed: { id: 'rimed', slots: ['weapon'], roll: (r) => r.int(15, 25), text: (v) => `+${v}% damage to frozen foes`, tags: ['frost'] },
-
-  vitality: { id: 'vitality', slots: ['chest', 'ring'], roll: (r, l) => r.int(10, 16) + l * 2, text: (v) => `+${v} maximum health`, tags: [] },
-  thorns: { id: 'thorns', slots: ['chest'], roll: (r) => r.int(30, 50), text: (v) => `When hit, poison attacker (+${v} buildup)`, tags: ['poison'] },
-  warding: { id: 'warding', slots: ['chest'], roll: (r) => r.int(1, 2), text: (v) => `Recover ${v} flask charge${v > 1 ? 's' : ''} at each stair`, tags: [] },
-
-  fleet: { id: 'fleet', slots: ['boots'], roll: (r) => r.int(8, 14), text: (v) => `+${v}% movement speed`, tags: [] },
-  quickstep: { id: 'quickstep', slots: ['boots'], roll: (r) => r.int(15, 30), text: (v) => `${v}% faster dodge recovery`, tags: ['dodge'] },
-  frostStep: { id: 'frostStep', slots: ['boots', 'ring'], roll: (r) => r.int(35, 55), text: (v) => `Dodging chills nearby foes (+${v} frost)`, tags: ['dodge', 'frost'] },
-
-  frostNova: { id: 'frostNova', slots: ['ring'], roll: (r) => r.int(55, 80), text: (v) => `Shatters spread frost to nearby foes (+${v})`, tags: ['shatter', 'frost'] },
-  sporeBloom: { id: 'sporeBloom', slots: ['ring'], roll: (r) => r.int(50, 75), text: (v) => `Poisoned foes burst into spores on death (+${v} poison nearby)`, tags: ['poison', 'kill'] },
-  shadowEcho: { id: 'shadowEcho', slots: ['ring'], roll: (r) => r.int(50, 70), text: (v) => `After a dodge, a shadow repeats your next attack (${v}% damage)`, tags: ['dodge'] },
-  venomHeart: { id: 'venomHeart', slots: ['ring'], roll: (r) => r.int(25, 40), text: (v) => `+${v}% poison buildup`, tags: ['poison'] },
-  rimeHeart: { id: 'rimeHeart', slots: ['ring'], roll: (r) => r.int(25, 40), text: (v) => `+${v}% frost buildup`, tags: ['frost'] },
-  bloodPrice: { id: 'bloodPrice', slots: ['ring'], roll: (r) => r.int(15, 25), text: (v) => `+${v}% damage, but flasks heal 25% less`, tags: [] },
-  luckyStrike: { id: 'luckyStrike', slots: ['ring'], roll: (r) => r.int(40, 60), text: (v) => `Critical hits deal +${v}% damage`, tags: ['crit'] },
+const EL_WORDS: Record<Element, string[]> = {
+  none: ['Wanderer', 'Old', 'Moss', 'Grey', 'Ruin', 'Oak', 'Hollow', 'Dusk', 'Pilgrim', 'Root', 'Stone', 'Lantern', 'Quiet', 'Tide'],
+  poison: ['Briar', 'Thorn', 'Venom', 'Blight', 'Nettle', 'Rot', 'Viper', 'Mire', 'Hemlock', 'Toad', 'Spore', 'Gall'],
+  frost: ['Winter', 'Rime', 'Frost', 'Glacier', 'Hoar', 'Snow', 'Sleet', 'Pale', 'Ice', 'Boreal', 'Floe', 'Chill'],
+  burn: ['Ember', 'Cinder', 'Ash', 'Pyre', 'Flame', 'Brand', 'Kiln', 'Scorch', 'Sun', 'Magma', 'Char', 'Hearth'],
+  shock: ['Storm', 'Thunder', 'Volt', 'Spark', 'Tempest', 'Static', 'Gale', 'Bolt', 'Squall', 'Arc', 'Fulgur', 'Skyfall'],
 };
+const COMPOUND = ['bite', 'fang', 'song', 'call', 'fall', 'mourn', 'wake', 'kiss', 'bane', 'heart', 'bloom', 'howl', 'crown', 'tooth', 'whisper', 'break', 'toll', 'thorn', 'shard', 'veil', 'spite', 'grin'];
+const EPITHETS = [
+  'the Drowned Choir',
+  'Nine Winters',
+  'the Ashen Orchard',
+  'the Last Lantern',
+  'Hollow Kings',
+  'the Sunken Bell',
+  'Quiet Thunder',
+  'the Pale Stag',
+  'the Rootmother',
+  'Broken Oaths',
+  'a Thousand Moths',
+  'the Ember Saint',
+  'Glass Rain',
+  'the Verdant Crown',
+  'Forgotten Tides',
+  'the Weeping Star',
+  'Moss and Marrow',
+  'the Seventh Gate',
+  'Bitter Spring',
+  'the Gilded Wolf',
+  'Unlit Halls',
+  'the Storm Shepherd',
+  'Patient Teeth',
+  'the Crowned Fox',
+  'Lost Pilgrims',
+  'Silent Choirs',
+  'the Hanging Garden',
+  'Slow Fire',
+  'the Lanternless',
+  'Seven Sorrows',
+  'the Under-Root',
+  'Falling Petals',
+];
+const HEROES = ['Thessaly', 'Orrin', 'Vael', 'Mirrow', 'Kestrel', 'Sable', 'Ilvane', 'Corvin', 'Aster', 'Wren', 'Halcyon', 'Nerezza', 'Isolde', 'Brann', 'Oriel', 'Talwyn', 'Maren', 'Ysolt', 'Caddoc', 'Liesel'];
 
-export function affixText(a: Affix): string {
-  return AFFIXES[a.id].text(a.value);
-}
-
-export function hasAffix(item: Item | null | undefined, id: AffixId): number {
-  if (!item) return 0;
-  let v = 0;
-  for (const a of item.affixes) if (a.id === id) v += a.value;
-  return v;
-}
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 // ---------------------------------------------------------------------------
-// Names: composed so each name hints at what the item does.
-
-const ELEMENT_PREFIX: Record<Element, string[]> = {
-  none: ['Wanderer', 'Old', 'Moss', 'Grey', 'Iron', 'Ruin', 'Oak'],
-  poison: ['Briar', 'Thorn', 'Venom', 'Blight', 'Nettle', 'Rot'],
-  frost: ['Winter', 'Rime', 'Frost', 'Glacier', 'Hoar', 'Snow'],
-};
-const FAMILY_SUFFIX: Record<WeaponFamily, string[]> = {
-  sword: ['brand', 'edge', 'fang', 'song', 'blade'],
-  daggers: ['hook', 'twins', 'sting', 'pair', 'kiss'],
-  hammer: ['bell', 'maul', 'fall', 'crown', 'anvil'],
-};
-const RING_NAMES: Partial<Record<AffixId, string[]>> = {
-  frostNova: ['Ring of the Long Winter', 'Shardbloom Ring', 'Hoarfrost Loop'],
-  sporeBloom: ['Mycelial Band', 'Orchard Ring', 'Sporeheart Loop'],
-  shadowEcho: ['Ring of the Borrowed Shadow', 'Echo Band', 'Twinned Loop'],
-  venomHeart: ['Viper Coil', 'Nettle Ring'],
-  rimeHeart: ['Coldstone Ring', 'Snowglass Band'],
-  bloodPrice: ['Glass Pact Ring', 'Red Bargain'],
-  luckyStrike: ['Gambler\'s Loop', 'Fortune Coil'],
-  frostStep: ['Skater\'s Ring', 'Drift Band'],
-  critChance: ['Keen Eye Ring', 'Hawk Band'],
-  vitality: ['Heartwood Ring', 'Oak Band'],
-};
-
-const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
-
-// ---------------------------------------------------------------------------
-// Generation.
+// Generation helpers
 
 let uidCounter = 0;
 export function newUid(rng: Rng): string {
@@ -262,104 +133,226 @@ export function newUid(rng: Rng): string {
 export function rollRarity(rng: Rng, level: number, bonus = 0): Rarity {
   const l = level + bonus;
   return rng.weighted<Rarity>([
-    ['common', Math.max(10, 50 - l * 8)],
-    ['uncommon', 30],
-    ['rare', 10 + l * 4],
-    ['epic', 2 + l * 2.5],
-    ['mythic', l >= 3 ? 0.6 + l * 0.3 : 0],
+    ['common', Math.max(6, 40 - l * 8)],
+    ['uncommon', 32],
+    ['rare', 14 + l * 4],
+    ['epic', 4 + l * 3],
+    ['mythic', l >= 2 ? 0.8 + l * 0.6 : 0.2],
   ]);
 }
 
-const AFFIX_COUNT: Record<Rarity, number> = { common: 0, uncommon: 1, rare: 2, epic: 2, mythic: 3 };
-const RARITY_POWER: Record<Rarity, number> = { common: 1, uncommon: 1.06, rare: 1.12, epic: 1.2, mythic: 1.28 };
+const QUALITY: Record<Rarity, [number, number]> = { common: [0.1, 0.3], uncommon: [0.25, 0.5], rare: [0.4, 0.7], epic: [0.6, 0.85], mythic: [0.8, 1] };
+const RARITY_POWER: Record<Rarity, number> = { common: 1, uncommon: 1.06, rare: 1.13, epic: 1.22, mythic: 1.32 };
+
+/** Familiarity function: higher = seen more often recently. Supplied by the game for anti-repetition. */
+export type Familiarity = (sig: string) => number;
+let familiarity: Familiarity = () => 0;
+export function setFamiliarity(f: Familiarity): void {
+  familiarity = f;
+}
+
+function propPlan(rarity: Rarity, r: Rng): { count: number; procs: number; conds: number; rule: boolean } {
+  switch (rarity) {
+    case 'common':
+      return { count: 1, procs: 0, conds: 0, rule: false };
+    case 'uncommon':
+      return { count: 2, procs: r.chance(0.4) ? 1 : 0, conds: 0, rule: false };
+    case 'rare':
+      return { count: 3, procs: 1, conds: r.chance(0.4) ? 1 : 0, rule: false };
+    case 'epic':
+      return { count: 4, procs: r.chance(0.5) ? 2 : 1, conds: 1, rule: false };
+    case 'mythic':
+      return { count: 5, procs: 2, conds: 1, rule: true };
+  }
+}
 
 export interface WeaponOpts {
   family?: WeaponFamily;
+  variant?: number;
   element?: Element;
   rarity?: Rarity;
   name?: string;
-  affixes?: Affix[];
+  props?: Prop[];
 }
 
 export function makeWeapon(rng: Rng, level: number, opts: WeaponOpts = {}): Item {
-  const family = opts.family ?? rng.pick<WeaponFamily>(['sword', 'daggers', 'hammer']);
+  // Pick the least familiar of a few archetypes so families/variants rotate.
+  let family = opts.family;
+  let variant = opts.variant;
+  if (!family) {
+    let best = Infinity;
+    for (let i = 0; i < 4; i++) {
+      const f = rng.pick(ALL_FAMILIES);
+      const v = rng.int(0, 2);
+      const s = familiarity(`w:${f}:${v}`) + familiarity(`f:${f}`) * 0.5 + rng.next() * 0.6;
+      if (s < best) {
+        best = s;
+        family = f;
+        variant = v;
+      }
+    }
+  }
+  family = family!;
+  variant = variant ?? rng.int(0, 2);
   const rarity = opts.rarity ?? rollRarity(rng, level);
   const fam = FAMILIES[family];
-  const element = opts.element ?? rng.weighted<Element>([
-    ['none', rarity === 'common' ? 5 : 2],
-    ['poison', 3],
-    ['frost', 3],
-  ]);
-  const levelMul = 1 + (level - 1) * 0.12;
-  const damage = Math.round(rng.range(fam.baseDamage[0], fam.baseDamage[1]) * levelMul * RARITY_POWER[rarity]);
-  // Buildup budget: lighter weapons apply less per hit but hit far more often.
-  const baseBuild = family === 'hammer' ? 30 : family === 'sword' ? 15 : 8;
-  const buildup = element === 'none' ? 0 : Math.round(baseBuild * rng.range(0.9, 1.25) * RARITY_POWER[rarity]);
-  const affixes = opts.affixes ?? rollAffixes(rng, 'weapon', level, AFFIX_COUNT[rarity], family, element);
-  const name = opts.name ?? `${rng.pick(ELEMENT_PREFIX[element])}${rng.pick(FAMILY_SUFFIX[family])}`;
-  return {
-    uid: newUid(rng),
-    slot: 'weapon',
-    family,
-    name: cap(name),
-    rarity,
-    level,
-    damage,
-    element,
-    buildup,
-    affixes,
-    look: rng.nextU32(),
-  };
+  const element =
+    opts.element ??
+    rng.weighted<Element>([
+      ['none', rarity === 'common' ? 4 : 1.5],
+      ['poison', 2],
+      ['frost', 2],
+      ['burn', 2],
+      ['shock', 2],
+    ]);
+  let element2: Element | undefined;
+  if (element !== 'none' && (rarity === 'epic' || rarity === 'mythic') && rng.chance(0.35)) element2 = rng.pick(STATUS_ELS.filter((e) => e !== element));
+  const q = rng.range(...QUALITY[rarity]);
+  const levelMul = 1 + (level - 1) * 0.14;
+  const damage = Math.max(1, Math.round(rng.range(fam.baseDamage[0], fam.baseDamage[1]) * levelMul * RARITY_POWER[rarity]));
+  const buildup = element === 'none' ? 0 : Math.round(fam.baseBuild * rng.range(0.9, 1.3) * RARITY_POWER[rarity] * (element2 ? 0.7 : 1));
+  const plan = propPlan(rarity, rng);
+  const props =
+    opts.props ??
+    rollProps(rng, { slot: 'weapon', quality: q, level, count: Math.max(0, plan.count - 1), procs: plan.procs, conds: Math.min(plan.conds, 1), rule: plan.rule, element, ranged: fam.ranged, avoid: familiarity });
+  const mat = rng.int(0, MATERIALS.length - 1);
+  const name = opts.name ?? weaponName(rng, family, element, rarity, mat, props);
+  return { uid: newUid(rng), slot: 'weapon', family, variant, name, rarity, level, damage, element, element2, buildup, props, look: rng.nextU32(), mat };
 }
 
-function rollAffixes(rng: Rng, slot: Slot, level: number, count: number, family?: WeaponFamily, element?: Element): Affix[] {
-  const pool = (Object.values(AFFIXES) as AffixDef[]).filter(
-    (d) =>
-      d.slots.includes(slot) &&
-      (!d.families || !family || d.families.includes(family)) &&
-      (!d.elements || (element !== undefined && d.elements.includes(element))),
-  );
-  rng.shuffle(pool);
-  return pool.slice(0, count).map((d) => ({ id: d.id, value: d.roll(rng, level) }));
+function weaponName(r: Rng, family: WeaponFamily, el: Element, rarity: Rarity, mat: number, props: Prop[]): string {
+  const fam = FAMILIES[family];
+  const noun = r.pick(fam.nouns);
+  const elWord = r.pick(EL_WORDS[el]);
+  if (rarity === 'mythic') {
+    const rule = props.find((p) => p.k === 'rule') as { rule: RuleId } | undefined;
+    const title = rule ? RULES[rule.rule].name : 'Undying';
+    return `${r.pick(HEROES)}, the ${title} ${noun}`;
+  }
+  if (rarity === 'epic') return `${cap(elWord)}${r.pick(COMPOUND)} ${noun} of ${r.pick(EPITHETS)}`;
+  if (rarity === 'rare' && r.chance(0.5)) return `${MATERIALS[mat].name} ${noun} of ${r.pick(EPITHETS)}`;
+  if (r.chance(0.5)) return `${cap(elWord)}${r.pick(COMPOUND)}`;
+  return `${r.chance(0.5) ? MATERIALS[mat].name : cap(elWord)} ${noun}`;
 }
 
-/** Ring with one signature trigger plus extra stat lines by rarity. */
-export function makeRing(rng: Rng, level: number, signature?: AffixId, rarity?: Rarity): Item {
+const RING_FORMS = ['Band', 'Loop', 'Signet', 'Coil', 'Ring', 'Circlet', 'Seal', 'Knot'];
+const ARMOR_ADJ = ['Mossweave', 'Ruinwarden', 'Bramble', 'Lichen', 'Pilgrim', 'Ashen', 'Gilded', 'Rimebound', 'Stormhide', 'Rootwoven', 'Mothsilk', 'Copper', 'Thornhide', 'Riverstone', 'Owlfeather', 'Lanternlit', 'Saltworn', 'Hollowbark'];
+const CHEST_NOUNS = ['Jerkin', 'Coat', 'Vest', 'Mail', 'Tunic', 'Cuirass', 'Robe', 'Brigandine', 'Harness', 'Mantle', 'Hauberk', 'Gambeson'];
+const BOOT_NOUNS = ['Boots', 'Treads', 'Greaves', 'Striders', 'Walkers', 'Sabatons', 'Sandals', 'Wraps', 'Footguards', 'Runners'];
+
+export function makeRing(rng: Rng, level: number, rarity?: Rarity, props?: Prop[]): Item {
   const r = rarity ?? rollRarity(rng, level, 1);
-  const sigPool: AffixId[] = ['frostNova', 'sporeBloom', 'shadowEcho', 'venomHeart', 'rimeHeart', 'bloodPrice', 'luckyStrike', 'frostStep'];
-  const sig = signature ?? rng.pick(sigPool);
-  const affixes: Affix[] = [{ id: sig, value: AFFIXES[sig].roll(rng, level) }];
-  const extraCount = Math.max(0, AFFIX_COUNT[r] - 1);
-  const extras = (['critChance', 'vitality'] as AffixId[]).filter((a) => a !== sig);
-  rng.shuffle(extras);
-  for (const id of extras.slice(0, extraCount)) affixes.push({ id, value: AFFIXES[id].roll(rng, level) });
-  const names = RING_NAMES[sig] ?? ['Plain Band'];
-  return { uid: newUid(rng), slot: 'ring', name: rng.pick(names), rarity: r, level, element: 'none', buildup: 0, affixes, look: rng.nextU32() };
+  const q = rng.range(...QUALITY[r]);
+  const plan = propPlan(r, rng);
+  const ps =
+    props ??
+    rollProps(rng, { slot: 'ring', quality: q, level, count: plan.count, procs: Math.max(1, plan.procs), conds: plan.conds, rule: plan.rule, avoid: familiarity });
+  const lead = ps.find((p) => p.k === 'proc') ?? ps[0];
+  const el = lead && lead.k === 'proc' ? lead.el : lead && lead.k === 'stat' && lead.el ? lead.el : 'none';
+  const word = cap(rng.pick(EL_WORDS[el]));
+  const name = r === 'mythic' ? `${rng.pick(HEROES)}'s ${rng.pick(RING_FORMS)}` : rng.chance(0.5) ? `${word} ${rng.pick(RING_FORMS)}` : `${rng.pick(RING_FORMS)} of ${rng.pick(EPITHETS)}`;
+  return { uid: newUid(rng), slot: 'ring', name, rarity: r, level, element: el, buildup: 0, props: ps, look: rng.nextU32(), mat: rng.int(0, MATERIALS.length - 1) };
 }
 
 export function makeArmor(rng: Rng, level: number, slot: 'chest' | 'boots', rarity?: Rarity): Item {
   const r = rarity ?? rollRarity(rng, level);
-  const affixes = rollAffixes(rng, slot, level, Math.max(1, AFFIX_COUNT[r]));
-  const chestNames = ['Mossweave Jerkin', 'Ruinwarden Coat', 'Bramble Vest', 'Lichen Mail', 'Pilgrim Tunic'];
-  const bootNames = ['Dewstep Boots', 'Rootrunner Boots', 'Pathfinder Boots', 'Quiet Treads', 'Mire Walkers'];
+  const q = rng.range(...QUALITY[r]);
+  const plan = propPlan(r, rng);
+  const props = rollProps(rng, { slot, quality: q, level, count: Math.max(1, plan.count), procs: plan.procs, conds: 0, rule: plan.rule, avoid: familiarity });
+  const name = r === 'mythic' ? `${rng.pick(HEROES)}'s ${rng.pick(slot === 'chest' ? CHEST_NOUNS : BOOT_NOUNS)}` : `${rng.pick(ARMOR_ADJ)} ${rng.pick(slot === 'chest' ? CHEST_NOUNS : BOOT_NOUNS)}`;
   return {
     uid: newUid(rng),
     slot,
-    name: rng.pick(slot === 'chest' ? chestNames : bootNames),
+    name,
     rarity: r,
     level,
     element: 'none',
     buildup: 0,
-    defense: slot === 'chest' ? Math.round(rng.range(2, 4) + level * 0.8) : undefined,
-    affixes,
+    defense: slot === 'chest' ? Math.round(rng.range(2, 4) + level * 0.9 + RARITIES.indexOf(r)) : Math.round(rng.range(0, 2) + level * 0.4),
+    props,
     look: rng.nextU32(),
   };
 }
 
+// ---------------------------------------------------------------------------
+// Relics: an extra active ability.
+
+export const RELICS: Record<RelicId, { name: string; nouns: string[]; cd: [number, number]; text: (s: RelicSpec) => string; elemental: boolean }> = {
+  blink: { name: 'Blink', nouns: ['Feather', 'Mask', 'Mirror'], cd: [5, 8], elemental: true, text: (s) => `Blink forward, untouchable, and burst in ${EL_ADJ[s.el]} on arrival (${Math.round(s.power * 100)}%).` },
+  nova: { name: 'Nova', nouns: ['Censer', 'Lantern', 'Bell'], cd: [8, 12], elemental: true, text: (s) => `Unleash a huge ${EL_ADJ[s.el]} nova around you (${Math.round(s.power * 100)}%).` },
+  meteor: { name: 'Starfall', nouns: ['Star-Seed', 'Comet Shard', 'Orrery'], cd: [10, 14], elemental: true, text: (s) => `Call ${s.count} ${EL_ADJ[s.el]} meteors onto nearby foes (${Math.round(s.power * 100)}% each).` },
+  vortex: { name: 'Vortex', nouns: ['Spiral Shell', 'Whirl Stone', 'Eye'], cd: [10, 14], elemental: true, text: (s) => `Open a ${EL_ADJ[s.el]} vortex that drags foes together for 2.5s.` },
+  spirits: { name: 'Spirits', nouns: ['Totem', 'Idol', 'Fetish'], cd: [14, 18], elemental: true, text: (s) => `Summon ${s.count} ${EL_ADJ[s.el]} spirits that fight for 9s.` },
+  bubble: { name: 'Bulwark', nouns: ['Shell', 'Ward', 'Aegis'], cd: [12, 16], elemental: false, text: (s) => `Gain a ${Math.round(s.power)}-point barrier for 8s.` },
+  timeslow: { name: 'Stillness', nouns: ['Hourglass', 'Sundial', 'Pendulum'], cd: [14, 18], elemental: false, text: () => 'Slow all foes and their projectiles by 60% for 4s.' },
+  storm: { name: 'Tempest', nouns: ['Horn', 'Rod', 'Banner'], cd: [12, 16], elemental: true, text: (s) => `Call ${s.count} ${EL_ADJ[s.el]} strikes onto foes over 3s (${Math.round(s.power * 100)}% each).` },
+  turret: { name: 'Sentry', nouns: ['Seed', 'Acorn', 'Thornling Bulb'], cd: [12, 16], elemental: true, text: (s) => `Plant a sentry that fires ${EL_ADJ[s.el]} bolts for 9s.` },
+  quake: { name: 'Quake', nouns: ['Drum', 'Anvil', 'Stone Heart'], cd: [9, 13], elemental: true, text: (s) => `Send out ${s.count} shockwaves that stagger and ${EL_ADJ[s.el]}-burn foes.` },
+  warcry: { name: 'Warcry', nouns: ['Warhorn', 'Banner', 'Mask'], cd: [14, 18], elemental: false, text: (s) => `For 6s gain +${Math.round(s.power)}% damage and attack speed.` },
+  mirror: { name: 'Mirror', nouns: ['Looking-Glass', 'Twin Mask', 'Shadow Lamp'], cd: [14, 18], elemental: false, text: (s) => `For 7s a shadow repeats every attack (${Math.round(s.power * 100)}%).` },
+};
+
+export function makeRelic(rng: Rng, level: number, rarity?: Rarity): Item {
+  const r = rarity ?? rollRarity(rng, level, 1);
+  const q = rng.range(...QUALITY[r]);
+  let ability: RelicId = 'nova';
+  let best = Infinity;
+  for (let i = 0; i < 4; i++) {
+    const a = rng.pick(Object.keys(RELICS) as RelicId[]);
+    const s = familiarity(`relic:${a}`) + rng.next() * 0.6;
+    if (s < best) {
+      best = s;
+      ability = a;
+    }
+  }
+  const def = RELICS[ability];
+  const el: Element = def.elemental ? rng.pick<Element>(['poison', 'frost', 'burn', 'shock', 'none']) : 'none';
+  const cooldown = Math.round((def.cd[1] - (def.cd[1] - def.cd[0]) * q) * 10) / 10;
+  let power = 1;
+  let count = 1;
+  if (ability === 'blink') power = 1.2 + q;
+  else if (ability === 'nova') power = 2 + q * 1.5;
+  else if (ability === 'meteor') {
+    power = 2 + q;
+    count = 3 + Math.round(q * 2);
+  } else if (ability === 'spirits') count = 2 + Math.round(q * 2);
+  else if (ability === 'bubble') power = 30 + q * 40 + level * 6;
+  else if (ability === 'storm') {
+    power = 1 + q * 0.8;
+    count = 8 + Math.round(q * 6);
+  } else if (ability === 'quake') {
+    power = 1 + q;
+    count = 2 + Math.round(q * 2);
+  } else if (ability === 'warcry') power = 25 + q * 25;
+  else if (ability === 'mirror') power = 0.4 + q * 0.3;
+  else if (ability === 'vortex' || ability === 'turret') power = 0.5 + q * 0.4;
+  const plan = propPlan(r, rng);
+  const props = rollProps(rng, { slot: 'relic', quality: q, level, count: Math.max(0, plan.count - 2), procs: 0, conds: 0, rule: false, avoid: familiarity });
+  const word = def.elemental && el !== 'none' ? cap(rng.pick(EL_WORDS[el])) : rng.pick(['Old', 'Pilgrim', 'Hollow', 'Gilded', 'Moss']);
+  const name = r === 'mythic' ? `${rng.pick(HEROES)}'s ${rng.pick(def.nouns)}` : `${word} ${rng.pick(def.nouns)}`;
+  return {
+    uid: newUid(rng),
+    slot: 'relic',
+    name,
+    rarity: r,
+    level,
+    element: el,
+    buildup: 0,
+    props,
+    look: rng.nextU32(),
+    relic: { ability, el, cooldown, power: Math.round(power * 100) / 100, count },
+  };
+}
+
+export function relicText(i: Item): string {
+  return i.relic ? RELICS[i.relic.ability].text(i.relic) : '';
+}
+
 export function starterWeapon(rng: Rng, family: WeaponFamily = 'sword'): Item {
-  const names: Record<WeaponFamily, string> = { sword: 'Wanderer\'s Blade', daggers: 'Pilgrim Knives', hammer: 'Mason\'s Maul' };
-  const w = makeWeapon(rng, 1, { family, element: 'none', rarity: 'common', name: names[family], affixes: [] });
+  const names: Partial<Record<WeaponFamily, string>> = { sword: "Wanderer's Blade", daggers: 'Pilgrim Knives', hammer: "Mason's Maul", spear: 'Ferryman Pike', bow: 'Hunting Bow', wand: 'Hazel Wand' };
+  const w = makeWeapon(rng, 1, { family, variant: 0, element: 'none', rarity: 'common', name: names[family] ?? `Old ${FAMILIES[family].nouns[0]}`, props: [] });
   w.damage = FAMILIES[family].baseDamage[0];
+  w.mat = 0;
   return w;
 }
 
@@ -367,24 +360,79 @@ export function randomLoot(rng: Rng, level: number, rarityBonus = 0): Item {
   const kind = rng.weighted<Slot>([
     ['weapon', 5],
     ['ring', 3],
-    ['chest', 1.5],
-    ['boots', 1.5],
+    ['chest', 1.4],
+    ['boots', 1.4],
+    ['relic', 1.2],
   ]);
-  if (kind === 'weapon') return makeWeapon(rng, level, { rarity: rollRarity(rng, level, rarityBonus) });
-  if (kind === 'ring') return makeRing(rng, level, undefined, rollRarity(rng, level, rarityBonus + 1));
-  return makeArmor(rng, level, kind, rollRarity(rng, level, rarityBonus));
+  const rarity = rollRarity(rng, level, rarityBonus + (kind === 'ring' || kind === 'relic' ? 0.5 : 0));
+  if (kind === 'weapon') return makeWeapon(rng, level, { rarity });
+  if (kind === 'ring') return makeRing(rng, level, rarity);
+  if (kind === 'relic') return makeRelic(rng, level, rarity);
+  return makeArmor(rng, level, kind, rarity);
+}
+
+// ---------------------------------------------------------------------------
+// Derived numbers & text
+
+export function itemSpeedMul(item: Item): number {
+  const v = item.family ? variantOf(item.family, item.variant).speed : 1;
+  let s = 0;
+  for (const p of item.props) if (p.k === 'stat' && p.stat === 'atkSpd') s += p.value;
+  return v * (1 + s / 100);
+}
+
+export function attackRate(item: Item): number {
+  const combo = comboFor(item.family!, item.variant);
+  const t = combo.reduce((s, c) => s + c.windup + c.active + c.recovery, 0) / itemSpeedMul(item);
+  return combo.length / t;
+}
+
+export function sustainedDps(item: Item): number {
+  const combo = comboFor(item.family!, item.variant);
+  const t = combo.reduce((s, c) => s + c.windup + c.active + c.recovery, 0) / itemSpeedMul(item);
+  const total = combo.reduce((s, c) => s + c.mul * (c.shot ? c.shot.count * (c.shot.returns ? 1.6 : 1) : 1), 0) * (item.damage ?? 0);
+  let dmg = 0;
+  for (const p of item.props) if (p.k === 'stat' && p.stat === 'dmg') dmg += p.value;
+  return (total / t) * (1 + dmg / 100);
 }
 
 export function itemTags(item: Item): Set<string> {
   const tags = new Set<string>();
   if (item.element !== 'none') tags.add(item.element);
-  if (item.family === 'hammer') tags.add('shatter');
-  for (const a of item.affixes) for (const t of AFFIXES[a.id].tags) tags.add(t);
+  if (item.element2) tags.add(item.element2);
+  if (item.family && (FAMILIES[item.family].heavy || item.family === 'axe' || item.family === 'scythe')) tags.add('shatter');
+  if (item.relic && item.relic.el !== 'none') tags.add(item.relic.el);
+  for (const p of item.props) for (const t of propTags(p)) tags.add(t);
   return tags;
 }
 
-export function salvageValue(item: Item): number {
-  return 4 + RARITIES.indexOf(item.rarity) * 6 + item.level * 2;
+export function itemLines(item: Item): string[] {
+  const lines: string[] = [];
+  if (item.relic) lines.push(relicText(item));
+  for (const p of item.props) lines.push(propText(p));
+  return lines;
 }
 
-export const SLOT_LABEL: Record<Slot, string> = { weapon: 'Weapon', chest: 'Chest', boots: 'Boots', ring: 'Ring' };
+export function itemSig(item: Item): string[] {
+  const s = item.props.map(propSig);
+  if (item.family) s.push(`w:${item.family}:${item.variant ?? 0}`, `f:${item.family}`);
+  if (item.relic) s.push(`relic:${item.relic.ability}`);
+  if (item.element !== 'none') s.push(`el:${item.slot}:${item.element}`);
+  return s;
+}
+
+export function salvageValue(item: Item): number {
+  return 4 + RARITIES.indexOf(item.rarity) * 7 + item.level * 2;
+}
+
+export function itemPrice(item: Item): number {
+  return Math.round((18 + RARITIES.indexOf(item.rarity) ** 2 * 16 + item.level * 6) * (item.slot === 'relic' ? 1.2 : 1));
+}
+
+export function familyLabel(item: Item): string {
+  if (!item.family) return SLOT_LABEL[item.slot];
+  const v = variantOf(item.family, item.variant);
+  return `${v.label} ${FAMILIES[item.family].label}`;
+}
+
+export type { StatusEl };

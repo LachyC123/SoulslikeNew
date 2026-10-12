@@ -1,8 +1,9 @@
+import type { Boon } from '../data/boons';
 import type { Item, WeaponFamily } from '../data/items';
 import type { FloorStateSave } from '../sim/world';
 import type { StatusState } from '../sim/player';
 
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 const META_KEY = 'pixel-dungeon.meta.v1';
 const RUN_KEY = 'pixel-dungeon.run.v1';
 
@@ -26,6 +27,8 @@ export interface Meta {
   starter: WeaponFamily;
   tutorialDone: boolean;
   seenHints: string[];
+  /** Recently seen item/boon signatures, to keep new finds fresh across runs. */
+  seen: string[];
   settings: Settings;
 }
 
@@ -50,10 +53,13 @@ export interface RunSave {
     gold: number;
     weaponIndex: 0 | 1;
     skillCd: [number, number];
-    loadout: { weapons: [Item | null, Item | null]; chest: Item | null; boots: Item | null; rings: [Item | null, Item | null] };
+    loadout: { weapons: [Item | null, Item | null]; chest: Item | null; boots: Item | null; rings: [Item | null, Item | null]; relic: Item | null };
     bag: (Item | null)[];
+    boons: Boon[];
+    relicCd: number;
     poison: StatusState;
   };
+  mods: string;
   floorState: FloorStateSave | null;
 }
 
@@ -78,6 +84,7 @@ export function defaultMeta(): Meta {
     starter: 'sword',
     tutorialDone: false,
     seenHints: [],
+    seen: [],
     settings: defaultSettings(),
   };
 }

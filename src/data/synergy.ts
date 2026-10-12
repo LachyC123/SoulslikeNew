@@ -1,19 +1,63 @@
-import { FAMILIES, hasAffix, Item } from './items';
+import { EL_STATUS, StatusEl, STATUS_ELS } from './elements';
+import { FAMILIES, Item } from './items';
 
 export interface Loadout {
   weapons: [Item | null, Item | null];
   chest: Item | null;
   boots: Item | null;
   rings: [Item | null, Item | null];
+  relic: Item | null;
 }
 
 export function loadoutItems(l: Loadout): Item[] {
-  return [...l.weapons, l.chest, l.boots, ...l.rings].filter((i): i is Item => !!i);
+  return [...l.weapons, l.chest, l.boots, ...l.rings, l.relic].filter((i): i is Item => !!i);
 }
 
-const isFrostSource = (i: Item) => i.element === 'frost' || hasAffix(i, 'frostStep') > 0 || hasAffix(i, 'rimeHeart') > 0;
-const isShatterSource = (i: Item) => i.family === 'hammer' || hasAffix(i, 'shatterer') > 0;
-const isPoisonSource = (i: Item) => i.element === 'poison' || hasAffix(i, 'thorns') > 0;
+type Need = StatusEl | 'shatter' | 'crit' | 'skill' | 'dodge' | 'kill';
+
+function provides(i: Item): Set<Need> {
+  const s = new Set<Need>();
+  if (i.element !== 'none' && i.slot === 'weapon') s.add(i.element as StatusEl);
+  if (i.element2 && i.element2 !== 'none') s.add(i.element2 as StatusEl);
+  if (i.relic && i.relic.el !== 'none') s.add(i.relic.el as StatusEl);
+  if (i.family && (FAMILIES[i.family].heavy || i.family === 'axe' || i.family === 'scythe')) s.add('shatter');
+  for (const p of i.props) {
+    if (p.k === 'proc' && p.el !== 'none' && p.effect !== 'echo') s.add(p.el as StatusEl);
+    if (p.k === 'stat' && (p.stat === 'crit' || p.stat === 'critDmg')) s.add('crit');
+    if (p.k === 'stat' && (p.stat === 'skillCd' || p.stat === 'skillDmg')) s.add('skill');
+    if (p.k === 'stat' && p.stat === 'dodgeCd') s.add('dodge');
+  }
+  return s;
+}
+
+function needs(i: Item): Map<Need, string> {
+  const m = new Map<Need, string>();
+  for (const p of i.props) {
+    if (p.k === 'cond') {
+      const map: Partial<Record<string, [StatusEl, string]>> = {
+        vsPoison: ['poison', 'its bonus against poisoned foes'],
+        vsFrozen: ['frost', 'its bonus against frozen foes'],
+        vsBurning: ['burn', 'its bonus against burning foes'],
+        vsShocked: ['shock', 'its bonus against shocked foes'],
+      };
+      const hit = map[p.cond];
+      if (hit) m.set(hit[0], hit[1]);
+    }
+    if (p.k === 'proc') {
+      if (p.trig === 'status' && p.statusEl) m.set(p.statusEl, `its "${EL_STATUS[p.statusEl]}" effect`);
+      if (p.trig === 'shatter') {
+        m.set('shatter', 'its shatter effect');
+        m.set('frost', 'its shatter effect');
+      }
+      if (p.trig === 'crit') m.set('crit', 'its critical-hit effect');
+      if (p.trig === 'skill') m.set('skill', 'its skill effect');
+      if (p.trig === 'dodge') m.set('dodge', 'its dodge effect');
+    }
+  }
+  return m;
+}
+
+const LABEL: Record<Need, string> = { poison: 'poison', frost: 'frost', burn: 'burn', shock: 'shock', shatter: 'shatters', crit: 'critical hits', skill: 'skill use', dodge: 'dodging', kill: 'kills' };
 
 /**
  * Plain-language explanations of how a candidate item connects to the rest of the build.
@@ -21,60 +65,28 @@ const isPoisonSource = (i: Item) => i.element === 'poison' || hasAffix(i, 'thorn
  */
 export function synergiesFor(item: Item, others: Item[]): string[] {
   const out: string[] = [];
-  const any = (pred: (i: Item) => boolean) => others.find(pred);
-
-  if (isShatterSource(item)) {
-    const frost = any(isFrostSource);
-    const nova = any((i) => hasAffix(i, 'frostNova') > 0);
-    if (nova) out.push(`Your ${nova.name} spreads frost when this shatters frozen foes.`);
-    else if (frost && frost.slot === 'weapon') out.push(`Freeze foes with ${frost.name}, then swap and shatter them with this.`);
-    else if (frost) out.push(`Your ${frost.name} chills foes; this weapon shatters them.`);
-    if (item.element === 'frost' && !nova) out.push('This weapon both freezes and shatters on its own.');
+  const myP = provides(item);
+  const myN = needs(item);
+  for (const o of others) {
+    const oP = provides(o);
+    const oN = needs(o);
+    for (const [need, what] of oN) if (myP.has(need)) out.push(`This brings ${LABEL[need]}, which powers ${o.name} (${what}).`);
+    for (const [need, what] of myN) if (oP.has(need)) out.push(`${o.name} brings ${LABEL[need]}, which powers ${what}.`);
+    // Freeze-and-shatter pairing.
+    if (myP.has('frost') && oP.has('shatter') && o !== item) out.push(`Freeze foes with this, then shatter them with ${o.name}.`);
+    if (myP.has('shatter') && oP.has('frost')) out.push(`${o.name} freezes foes; this shatters them.`);
   }
-  if (item.element === 'frost' && !isShatterSource(item)) {
-    const shat = any(isShatterSource);
-    if (shat) out.push(`Frost from this sets up shatters for your ${shat.name}.`);
+  if (myP.has('frost') && myP.has('shatter')) out.push('This weapon both freezes and shatters on its own.');
+  // Shared element focus.
+  if (!out.length) {
+    for (const el of STATUS_ELS) {
+      if (!myP.has(el)) continue;
+      const mate = others.find((o) => provides(o).has(el));
+      if (mate) {
+        out.push(`Stacks ${EL_STATUS[el].toLowerCase()} with ${mate.name}.`);
+        break;
+      }
+    }
   }
-  if (hasAffix(item, 'frostNova')) {
-    const shat = any(isShatterSource);
-    if (shat) out.push(`Your ${shat.name} shatters frozen foes; this ring spreads that frost onward.`);
-    else out.push('Needs a shatter source: hammers shatter frozen foes.');
-  }
-  if (hasAffix(item, 'sporeBloom')) {
-    const p = any(isPoisonSource);
-    if (p) out.push(`Foes poisoned by ${p.name} burst into spores, infecting their neighbours.`);
-    else out.push('Needs a poison source to trigger.');
-  }
-  if (item.element === 'poison') {
-    const bloom = any((i) => hasAffix(i, 'sporeBloom') > 0);
-    if (bloom) out.push(`Your ${bloom.name} turns poisoned kills into spreading spores.`);
-    const venom = any((i) => hasAffix(i, 'venomHeart') > 0);
-    if (venom) out.push(`Your ${venom.name} boosts this weapon's poison buildup.`);
-  }
-  if (hasAffix(item, 'venomHeart')) {
-    const p = any((i) => i.element === 'poison');
-    if (p) out.push(`Boosts the poison buildup of ${p.name}.`);
-  }
-  if (hasAffix(item, 'rimeHeart')) {
-    const f = any((i) => i.element === 'frost');
-    if (f) out.push(`Boosts the frost buildup of ${f.name}.`);
-  }
-  if (hasAffix(item, 'shadowEcho')) {
-    const heavy = any((i) => i.family === 'hammer');
-    out.push(heavy ? `Dodge, then strike: your shadow repeats even ${heavy.name}'s heavy blows.` : 'Dodge, then strike: your shadow repeats the attack.');
-  }
-  if (item.family && FAMILIES[item.family].heavy) {
-    const echo = any((i) => hasAffix(i, 'shadowEcho') > 0);
-    if (echo) out.push(`Your ${echo.name} echoes these heavy impacts after a dodge.`);
-  }
-  if (hasAffix(item, 'frostStep')) {
-    const shat = any(isShatterSource);
-    if (shat) out.push(`Dodges chill foes; ${shat.name} can shatter them once frozen.`);
-  }
-  if (hasAffix(item, 'luckyStrike') || hasAffix(item, 'critChance')) {
-    const c = any((i) => hasAffix(i, 'critChance') > 0 || hasAffix(i, 'luckyStrike') > 0);
-    if (c) out.push(`Stacks with the critical bonuses on ${c.name}.`);
-  }
-  if (item.family === 'daggers' && item.element !== 'none') out.push(`Rapid cuts build ${item.element} quickly.`);
   return [...new Set(out)].slice(0, 2);
 }

@@ -1,18 +1,16 @@
-import { FAMILIES, Item, RARITY_GEMS, RARITY_LABEL, SLOT_LABEL, affixText, WeaponFamily } from '../data/items';
+import { Boon } from '../data/boons';
+import { FAMILIES, Item, itemPrice, WeaponFamily } from '../data/items';
+import { ALL_FAMILIES } from '../data/weapons';
 import { iconDataUrl } from '../render/icons';
 import { exportBackup, importBackup, Meta, Settings } from '../save/save';
-import { button, el } from './equipment';
+import { boonCard, button, el, itemCard } from './equipment';
 
 export const UPGRADES = {
   vigor: { name: 'Heartwood Vigor', desc: '+10 maximum health per rank', max: 3, cost: [8, 16, 28] },
   flask: { name: 'Deeper Flask', desc: '+1 flask charge per rank', max: 2, cost: [14, 30] },
 } as const;
 
-export const STARTER_UNLOCK: Record<WeaponFamily, string> = {
-  sword: 'Always available',
-  daggers: 'Unlocked by reaching floor 2',
-  hammer: 'Unlocked by defeating the Thorn Warden',
-};
+export const STARTER_UNLOCK = 'Unlock a weapon family as a starter by descending to floor 2 while wielding it.';
 
 function scrim(overlay: HTMLElement, onBackdrop?: () => void): HTMLElement {
   const s = el('div', 'scrim');
@@ -214,8 +212,8 @@ export function upgradesScreen(overlay: HTMLElement, meta: Meta, onChange: () =>
         }),
       );
     list.appendChild(el('div', 'muted', 'Starting weapon (one basic weapon — not a full build):'));
-    const starters = el('div', 'actions');
-    for (const f of ['sword', 'daggers', 'hammer'] as WeaponFamily[]) {
+    const starters = el('div', 'actions wrap');
+    for (const f of ALL_FAMILIES as WeaponFamily[]) {
       const unlocked = meta.unlocked.includes(f);
       const b = button(FAMILIES[f].label, `btn small ${meta.starter === f ? 'equip' : ''}`, () => {
         if (!unlocked) return;
@@ -224,11 +222,11 @@ export function upgradesScreen(overlay: HTMLElement, meta: Meta, onChange: () =>
         render();
       });
       b.disabled = !unlocked;
-      b.title = STARTER_UNLOCK[f];
+      b.title = unlocked ? '' : STARTER_UNLOCK;
       starters.appendChild(b);
     }
     list.appendChild(starters);
-    if (meta.unlocked.length < 3) list.appendChild(el('div', 'muted', meta.unlocked.includes('daggers') ? STARTER_UNLOCK.hammer : `${STARTER_UNLOCK.daggers}; ${STARTER_UNLOCK.hammer.toLowerCase()}.`));
+    list.appendChild(el('div', 'muted', STARTER_UNLOCK));
     p.appendChild(list);
     p.appendChild(el('div', '', '<br>'));
     p.appendChild(button('Back', 'btn', back));
@@ -247,6 +245,8 @@ export interface RecapData {
   items: Item[];
   unlocks: string[];
   time: number;
+  combo: number;
+  boons: string[];
 }
 
 export function recapScreen(overlay: HTMLElement, d: RecapData, cb: { again: () => void; title: () => void }): void {
@@ -276,7 +276,7 @@ export function recapScreen(overlay: HTMLElement, d: RecapData, cb: { again: () 
     el(
       'div',
       'rows',
-      `<span>Floor reached</span><span>${d.floor}</span><span>Foes defeated</span><span>${d.kills}</span><span>Gold collected</span><span>${d.gold}</span><span>Time</span><span>${mins}:${String(secs).padStart(2, '0')}</span><span>Embers earned</span><span style="color:var(--gold)">+${d.embers} (kept)</span>`,
+      `<span>Floor reached</span><span>${d.floor}</span><span>Foes defeated</span><span>${d.kills}</span><span>Gold collected</span><span>${d.gold}</span><span>Time</span><span>${mins}:${String(secs).padStart(2, '0')}</span><span>Best combo</span><span>${d.combo} hits</span><span>Boons</span><span>${d.boons.length ? d.boons.join(', ') : '—'}</span><span>Embers earned</span><span style="color:var(--gold)">+${d.embers} (kept)</span>`,
     ),
   );
   for (const u of d.unlocks) p.appendChild(el('div', 'unlock', `✦ ${u}`));
@@ -294,26 +294,115 @@ export function rewardScreen(overlay: HTMLElement, items: Item[], synergy: (i: I
   p.appendChild(el('h2', '', '<span class="orn">◆</span>Choose a reward<span class="orn">◆</span>'));
   const row = el('div', 'reward-row');
   for (const it of items) {
-    const c = el('div', 'card found');
-    c.appendChild(el('div', 'tag', `${RARITY_LABEL[it.rarity].toUpperCase()} ${(it.family ? FAMILIES[it.family].label : SLOT_LABEL[it.slot]).toUpperCase()}`));
-    const n = el('div', 'name', it.name);
-    n.style.color = `var(--r-${it.rarity})`;
-    c.appendChild(n);
-    c.appendChild(el('div', 'rarity', `<span class="gems" style="color:var(--r-${it.rarity})">${'◆'.repeat(RARITY_GEMS[it.rarity])}</span>`));
-    c.appendChild(el('div', 'art', `<img src="${iconDataUrl(it, 4)}" alt="">`));
-    const st = el('div', 'stats');
-    if (it.damage) st.appendChild(el('div', 'stat', `<span class="k">Damage per hit</span><span class="v">${it.damage}</span>`));
-    if (it.element !== 'none') st.appendChild(el('div', 'stat', `<span class="k">${it.element} buildup / hit</span><span class="v el-${it.element}">+${it.buildup}</span>`));
-    if (it.defense) st.appendChild(el('div', 'stat', `<span class="k">Defence</span><span class="v">${it.defense}</span>`));
-    for (const a of it.affixes) st.appendChild(el('div', 'affix', affixText(a)));
-    c.appendChild(st);
     const syn = synergy(it);
-    c.appendChild(el('div', 'innate', syn[0] ?? 'No direct synergy with your gear.'));
+    const c = itemCard(it, 'Reward', null, el('div', 'innate syn-line', syn[0] ?? 'No direct synergy with your gear.'));
+    c.classList.add('pickable');
     c.addEventListener('click', () => pick(it));
     row.appendChild(c);
   }
   p.appendChild(row);
   p.appendChild(el('div', 'innate', 'You also recover some health. The chosen item goes to your backpack (or the ground if full).'));
+  s.appendChild(p);
+}
+
+/** Pick one of three boons (run-only passives). */
+export function boonScreen(overlay: HTMLElement, title: string, boons: Boon[], full: boolean, pick: (b: Boon | null) => void): void {
+  const s = scrim(overlay);
+  const p = el('div', 'panel');
+  p.appendChild(el('h2', '', `<span class="orn">◆</span>${title}<span class="orn">◆</span>`));
+  const row = el('div', 'reward-row');
+  for (const b of boons) {
+    const c = boonCard(b, 'Boon');
+    c.classList.add('pickable');
+    c.addEventListener('click', () => pick(b));
+    row.appendChild(c);
+  }
+  p.appendChild(row);
+  p.appendChild(el('div', 'innate', full ? 'Your boon slots are full: picking one replaces your oldest boon.' : 'Boons last for the rest of this run.'));
+  const a = el('div', 'actions');
+  a.appendChild(button('Skip', 'btn leave small', () => pick(null)));
+  p.appendChild(a);
+  s.appendChild(p);
+}
+
+export function shrineScreen(overlay: HTMLElement, pacts: Boon[], accept: (b: Boon) => void, leave: () => void): void {
+  const s = scrim(overlay, leave);
+  const p = el('div', 'panel');
+  p.appendChild(el('h2', '', '<span class="orn">◆</span>Cursed Shrine<span class="orn">◆</span>'));
+  p.appendChild(el('div', 'innate', 'Every pact shows its full price. Accept one, or walk away. The shrine goes dark either way once you choose.'));
+  const row = el('div', `reward-row cols-${pacts.length}`);
+  for (const b of pacts) {
+    const c = boonCard(b, 'Pact');
+    c.classList.add('pickable');
+    c.addEventListener('click', () => accept(b));
+    row.appendChild(c);
+  }
+  p.appendChild(row);
+  const a = el('div', 'actions');
+  a.appendChild(button('Walk away', 'btn leave', leave));
+  p.appendChild(a);
+  s.appendChild(p);
+}
+
+export interface ShopState {
+  items: (Item | null)[];
+  boon: Boon | null;
+  boonPrice: number;
+  rerolls: number;
+}
+
+export function shopScreen(
+  overlay: HTMLElement,
+  shop: ShopState,
+  gold: () => number,
+  cb: { buy: (i: number) => void; buyBoon: () => void; reroll: () => void; heal: () => void; healPrice: number; leave: () => void },
+): void {
+  const s = scrim(overlay, cb.leave);
+  const p = el('div', 'panel shop');
+  const render = () => {
+    p.innerHTML = '';
+    p.appendChild(el('h2', '', '<span class="orn">◆</span>Wandering Merchant<span class="orn">◆</span>'));
+    p.appendChild(el('div', 'shop-gold', `<i class="coin"></i> ${gold()} gold`));
+    const row = el('div', 'reward-row shop-row');
+    shop.items.forEach((it, i) => {
+      if (!it) {
+        row.appendChild(el('div', 'card empty-card', 'Sold'));
+        return;
+      }
+      const price = it.price ?? itemPrice(it);
+      const buy = button(`Buy · ${price}g`, 'btn equip small', () => {
+        cb.buy(i);
+        render();
+      });
+      buy.disabled = gold() < price;
+      row.appendChild(itemCard(it, 'For sale', null, buy));
+    });
+    if (shop.boon) {
+      const buy = button(`Buy · ${shop.boonPrice}g`, 'btn equip small', () => {
+        cb.buyBoon();
+        render();
+      });
+      buy.disabled = gold() < shop.boonPrice;
+      const c = boonCard(shop.boon, 'Boon for sale');
+      c.appendChild(buy);
+      row.appendChild(c);
+    }
+    p.appendChild(row);
+    const a = el('div', 'actions');
+    const reroll = button(`Restock · ${20 + shop.rerolls * 15}g`, 'btn store small', () => {
+      cb.reroll();
+      render();
+    });
+    reroll.disabled = gold() < 20 + shop.rerolls * 15;
+    const heal = button(`Healing draught · ${cb.healPrice}g`, 'btn small', () => {
+      cb.heal();
+      render();
+    });
+    heal.disabled = gold() < cb.healPrice;
+    a.append(reroll, heal, button('Leave', 'btn leave small', cb.leave));
+    p.appendChild(a);
+  };
+  render();
   s.appendChild(p);
 }
 

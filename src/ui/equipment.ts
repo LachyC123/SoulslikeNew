@@ -1,34 +1,32 @@
-import {
-  affixText,
-  attackRate,
-  FAMILIES,
-  Item,
-  itemSpeedMul,
-  RARITY_GEMS,
-  RARITY_LABEL,
-  salvageValue,
-  SLOT_LABEL,
-  sustainedDps,
-} from '../data/items';
+import { Boon } from '../data/boons';
+import { EL_STATUS } from '../data/elements';
+import { attackRate, familyLabel, FAMILIES, Item, itemLines, RARITY_GEMS, RARITY_LABEL, RELICS, salvageValue, SLOT_LABEL, sustainedDps } from '../data/items';
+import { propText } from '../data/props';
 import { loadoutItems, synergiesFor } from '../data/synergy';
-import { iconDataUrl } from '../render/icons';
+import { variantOf } from '../data/weapons';
+import { boonIconUrl, iconDataUrl } from '../render/icons';
 import { canvas, ctx2d } from '../render/pixel';
 import { playerFrames, PlayerLook } from '../render/sprites';
-import { bagFree, equipItem, Player } from '../sim/player';
+import { BOON_SLOTS, bagFree, equipItem, Player } from '../sim/player';
 
 export interface EquipCallbacks {
-  /** Equipment changed (rebuild stats, save). */
   changed(msg?: string, kind?: 'info' | 'synergy' | 'warn'): void;
-  /** Remove the found pickup from the world. */
   takeFound(): void;
-  /** Drop an item on the ground at the player. */
   drop(item: Item): void;
   close(): void;
   sound(): void;
   look(): PlayerLook;
 }
 
-type Sel = { kind: 'bag'; i: number } | { kind: 'weapon'; i: 0 | 1 } | { kind: 'ring'; i: 0 | 1 } | { kind: 'chest' } | { kind: 'boots' } | null;
+type Sel =
+  | { kind: 'bag'; i: number }
+  | { kind: 'weapon'; i: 0 | 1 }
+  | { kind: 'ring'; i: 0 | 1 }
+  | { kind: 'chest' }
+  | { kind: 'boots' }
+  | { kind: 'relic' }
+  | { kind: 'boon'; i: number }
+  | null;
 
 export class EquipmentUI {
   private root: HTMLElement;
@@ -45,9 +43,10 @@ export class EquipmentUI {
     this.root = document.createElement('div');
     this.root.className = 'scrim';
     overlay.appendChild(this.root);
+    const l = player.loadout;
     if (found) {
-      if (found.slot === 'weapon') this.replaceIdx = player.loadout.weapons[player.weaponIndex] && player.loadout.weapons[1 - player.weaponIndex] ? player.weaponIndex : player.loadout.weapons[player.weaponIndex] ? ((1 - player.weaponIndex) as 0 | 1) : player.weaponIndex;
-      if (found.slot === 'ring') this.replaceIdx = player.loadout.rings[0] ? (player.loadout.rings[1] ? 0 : 1) : 0;
+      if (found.slot === 'weapon') this.replaceIdx = l.weapons[player.weaponIndex] && l.weapons[1 - player.weaponIndex] ? player.weaponIndex : l.weapons[player.weaponIndex] ? ((1 - player.weaponIndex) as 0 | 1) : player.weaponIndex;
+      if (found.slot === 'ring') this.replaceIdx = l.rings[0] ? (l.rings[1] ? 0 : 1) : 0;
     } else this.sel = { kind: 'weapon', i: player.weaponIndex };
     this.render();
     this.root.addEventListener('pointerdown', (e) => {
@@ -67,7 +66,9 @@ export class EquipmentUI {
     if (s.kind === 'weapon') return l.weapons[s.i];
     if (s.kind === 'ring') return l.rings[s.i];
     if (s.kind === 'chest') return l.chest;
-    return l.boots;
+    if (s.kind === 'boots') return l.boots;
+    if (s.kind === 'relic') return l.relic;
+    return null;
   }
 
   private render(): void {
@@ -81,7 +82,6 @@ export class EquipmentUI {
     const grid = el('div', 'equip-panel');
     panel.appendChild(grid);
 
-    // ---- Paper doll + bag
     const dollCol = el('div', 'doll-col');
     const doll = el('div', 'doll');
     const left = el('div', 'slots');
@@ -90,28 +90,29 @@ export class EquipmentUI {
       this.slotEl(l.weapons[0], 'Wpn 1', { kind: 'weapon', i: 0 }, p.weaponIndex === 0),
       this.slotEl(l.chest, 'Chest', { kind: 'chest' }),
       this.slotEl(l.boots, 'Boots', { kind: 'boots' }),
+      this.slotEl(l.relic, 'Relic', { kind: 'relic' }),
     );
     right.append(
       this.slotEl(l.weapons[1], 'Wpn 2', { kind: 'weapon', i: 1 }, p.weaponIndex === 1),
       this.slotEl(l.rings[0], 'Ring', { kind: 'ring', i: 0 }),
       this.slotEl(l.rings[1], 'Ring', { kind: 'ring', i: 1 }),
     );
-    const relic = el('div', 'slot locked', '<span class="lbl">Relic</span>');
-    relic.title = 'Relics arrive in a later milestone';
-    right.appendChild(relic);
     const ch = canvas(16, 18);
     ch.className = 'char';
     ctx2d(ch).drawImage(playerFrames(this.cb.look()).frames[0][0], 0, 0);
     doll.append(left, ch, right);
     dollCol.appendChild(doll);
-    const bagTitle = el('div', 'bag-title', `<span>Backpack</span><span>${p.bag.filter(Boolean).length} / ${p.bag.length}</span>`);
-    dollCol.appendChild(bagTitle);
+    dollCol.appendChild(el('div', 'bag-title', `<span>Backpack</span><span>${p.bag.filter(Boolean).length} / ${p.bag.length}</span>`));
     const bag = el('div', 'bag');
     p.bag.forEach((it, i) => bag.appendChild(this.slotEl(it, '', { kind: 'bag', i })));
     dollCol.appendChild(bag);
+    dollCol.appendChild(el('div', 'bag-title', `<span>Boons</span><span>${p.boons.length} / ${BOON_SLOTS}</span>`));
+    const boons = el('div', 'boon-row');
+    p.boons.forEach((b, i) => boons.appendChild(this.boonEl(b, i)));
+    if (!p.boons.length) boons.appendChild(el('span', 'muted small-note', 'Earn boons on each staircase.'));
+    dollCol.appendChild(boons);
     grid.appendChild(dollCol);
 
-    // ---- Cards
     const col = el('div', 'cards-col');
     grid.appendChild(col);
     if (found) {
@@ -127,16 +128,20 @@ export class EquipmentUI {
       const free = bagFree(p) >= 0;
       const store = button(free ? 'Store' : 'Bag full', 'btn store', () => this.storeFound());
       store.disabled = !free;
-      const leave = button('Leave', 'btn leave', () => this.cb.close());
-      actions.append(equip, store, leave);
+      actions.append(equip, store, button('Leave', 'btn leave', () => this.cb.close()));
       col.appendChild(actions);
       setTimeout(() => equip.focus(), 0);
+    } else if (this.sel?.kind === 'boon') {
+      const b = p.boons[this.sel.i];
+      const cards = el('div', 'cards single');
+      if (b) cards.appendChild(boonCard(b, b.cursed ? 'Pact' : 'Boon'));
+      col.appendChild(cards);
+      col.appendChild(el('div', 'innate', 'Boons last for this run only.'));
     } else {
       const item = this.selectedItem();
       const s = this.sel;
-      if (!item) {
-        col.appendChild(el('div', 'card empty-card', 'Select an item to see its details.<br><br>Bag items can be equipped, favourited or salvaged for gold.'));
-      } else if (s?.kind === 'bag') {
+      if (!item) col.appendChild(el('div', 'card empty-card', 'Select an item to see its details.<br><br>Bag items can be equipped, favourited or salvaged for gold.'));
+      else if (s?.kind === 'bag') {
         const target = this.compareTarget(item);
         const shown = target ?? this.activeFallback(item);
         const cards = el('div', 'cards');
@@ -183,7 +188,8 @@ export class EquipmentUI {
     if (item.slot === 'weapon') return l.weapons[this.replaceIdx] ?? null;
     if (item.slot === 'ring') return l.rings[this.replaceIdx] ?? null;
     if (item.slot === 'chest') return l.chest;
-    return l.boots;
+    if (item.slot === 'boots') return l.boots;
+    return l.relic;
   }
 
   /** When the new item fills an empty slot, still compare it against what you use now. */
@@ -205,12 +211,13 @@ export class EquipmentUI {
     }
     wrap.appendChild(el('span', '', 'Replace:'));
     for (const i of [0, 1] as const) {
-      const b = button(`${slots[i]!.name}`, `btn small ${this.replaceIdx === i ? 'on' : ''}`, () => {
-        this.replaceIdx = i;
-        this.cb.sound();
-        this.render();
-      });
-      wrap.appendChild(b);
+      wrap.appendChild(
+        button(`${slots[i]!.name}`, `btn small ${this.replaceIdx === i ? 'on' : ''}`, () => {
+          this.replaceIdx = i;
+          this.cb.sound();
+          this.render();
+        }),
+      );
     }
     return wrap;
   }
@@ -223,8 +230,7 @@ export class EquipmentUI {
       b.title = `${item.name} (${RARITY_LABEL[item.rarity]} ${SLOT_LABEL[item.slot]})`;
     } else if (label) b.innerHTML = `<span class="lbl">${label}</span>`;
     if (activeW) b.classList.add('active-w');
-    const isSel = !this.found && this.sel && JSON.stringify(this.sel) === JSON.stringify(sel);
-    if (isSel) b.classList.add('sel');
+    if (!this.found && this.sel && JSON.stringify(this.sel) === JSON.stringify(sel)) b.classList.add('sel');
     b.addEventListener('click', () => {
       if (this.found) return;
       this.sel = sel;
@@ -241,6 +247,22 @@ export class EquipmentUI {
     return b;
   }
 
+  private boonEl(b: Boon, i: number): HTMLElement {
+    const btn = el('button', 'slot boon-slot');
+    btn.dataset.r = b.rarity;
+    const lead = b.props.find((p) => p.k === 'proc');
+    btn.innerHTML = `<img src="${boonIconUrl(lead && lead.k === 'proc' ? lead.el : 'none', b.name.length, !!b.cursed, b.props[0]?.k)}" alt="">`;
+    btn.title = b.name;
+    if (this.sel?.kind === 'boon' && this.sel.i === i) btn.classList.add('sel');
+    btn.addEventListener('click', () => {
+      if (this.found) return;
+      this.sel = { kind: 'boon', i };
+      this.cb.sound();
+      this.render();
+    });
+    return btn;
+  }
+
   private emptyCard(forItem: Item): HTMLElement {
     const c = el('div', 'card');
     c.appendChild(el('div', 'tag', 'EQUIPPED'));
@@ -249,45 +271,20 @@ export class EquipmentUI {
   }
 
   private card(item: Item, tag: string, compareTo: Item | null): HTMLElement {
-    const c = el('div', `card ${tag.startsWith('Equipped') ? '' : 'found'}`);
-    c.appendChild(el('div', 'tag', tag.toUpperCase()));
-    const name = el('div', 'name', item.name);
-    name.style.color = `var(--r-${item.rarity})`;
-    c.appendChild(name);
-    const gems = '◆'.repeat(RARITY_GEMS[item.rarity]) + '◇'.repeat(4 - RARITY_GEMS[item.rarity]);
-    const fam = item.family ? FAMILIES[item.family].label : SLOT_LABEL[item.slot];
-    c.appendChild(el('div', 'rarity', `<span style="color:var(--r-${item.rarity})">${RARITY_LABEL[item.rarity]}</span> ${fam} <span class="gems" style="color:var(--r-${item.rarity})">${gems}</span>`));
-    const art = el('div', 'art', `<img src="${iconDataUrl(item, 4)}" alt="">`);
-    c.appendChild(art);
-    const stats = el('div', 'stats');
-    for (const row of statRows(item, compareTo)) stats.appendChild(row);
-    for (const a of item.affixes) stats.appendChild(el('div', 'affix', affixText(a)));
-    c.appendChild(stats);
-    if (item.family) {
-      const f = FAMILIES[item.family];
-      c.appendChild(el('div', 'innate', `${f.innate} Skill: ${f.skill.name}.`));
-    }
-    if (compareTo?.family && item.family) {
-      const t = tradeoff(compareTo, item);
-      if (t) c.appendChild(el('div', 'innate', t));
-    }
-    return c;
+    return itemCard(item, tag, compareTo);
   }
 
   private synergyBox(item: Item, replaced: Item | null, equippedView = false): HTMLElement {
     const others = loadoutItems(this.player.loadout).filter((i) => i !== item && i !== replaced);
     const lines = synergiesFor(item, others);
     const box = el('div', `synergy ${lines.length ? '' : 'none'}`);
-    box.appendChild(el('div', 'ring-ico', lines.length ? '❄' : '·'));
-    if (lines.length) box.querySelector('.ring-ico')!.textContent = item.element === 'poison' || lines.some((l) => /poison|spore/i.test(l)) ? '☘' : lines.some((l) => /frost|shatter|chill/i.test(l)) ? '❄' : '✦';
+    box.appendChild(el('div', 'ring-ico', lines.length ? '✦' : '·'));
     const txt = el('div', 'lines');
     if (lines.length) for (const l of lines) txt.appendChild(el('div', '', highlight(l)));
     else txt.textContent = equippedView ? 'No active synergy with your other gear.' : 'No direct synergy with your current gear.';
     box.appendChild(txt);
     return box;
   }
-
-  // ---- actions
 
   private equipFound() {
     const p = this.player;
@@ -336,7 +333,7 @@ export class EquipmentUI {
     p.bag[i] = displaced;
     const syn = synergiesFor(item, loadoutItems(p.loadout).filter((x) => x !== item));
     this.cb.changed(syn[0] ?? `Equipped ${item.name}.`, syn.length ? 'synergy' : 'info');
-    this.sel = item.slot === 'weapon' ? { kind: 'weapon', i: this.replaceIdx } : item.slot === 'ring' ? { kind: 'ring', i: this.replaceIdx } : { kind: item.slot };
+    this.sel = item.slot === 'weapon' ? { kind: 'weapon', i: this.replaceIdx } : item.slot === 'ring' ? { kind: 'ring', i: this.replaceIdx } : ({ kind: item.slot } as Sel);
     this.render();
   }
 
@@ -389,6 +386,9 @@ export class EquipmentUI {
     } else if (s.kind === 'boots') {
       item = l.boots;
       l.boots = null;
+    } else if (s.kind === 'relic') {
+      item = l.relic;
+      l.relic = null;
     }
     if (!item) return;
     p.bag[free] = item;
@@ -398,29 +398,83 @@ export class EquipmentUI {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Shared card builders
+
+export function itemCard(item: Item, tag: string, compareTo: Item | null, extra?: HTMLElement): HTMLElement {
+  const c = el('div', `card ${tag.startsWith('Equipped') ? '' : 'found'} r-${item.rarity}`);
+  c.appendChild(el('div', 'tag', tag.toUpperCase()));
+  const name = el('div', 'name', item.name);
+  name.style.color = `var(--r-${item.rarity})`;
+  name.title = item.name;
+  c.appendChild(name);
+  const gems = '◆'.repeat(RARITY_GEMS[item.rarity]) + '◇'.repeat(4 - RARITY_GEMS[item.rarity]);
+  c.appendChild(el('div', 'rarity', `<span style="color:var(--r-${item.rarity})">${RARITY_LABEL[item.rarity]}</span> ${familyLabel(item)} <span class="gems" style="color:var(--r-${item.rarity})">${gems}</span>`));
+  c.appendChild(el('div', 'art', `<img src="${iconDataUrl(item, 4)}" alt="">`));
+  const stats = el('div', 'stats');
+  for (const row of statRows(item, compareTo)) stats.appendChild(row);
+  if (item.relic) {
+    stats.appendChild(el('div', 'affix relic-line', highlight(itemLines(item)[0])));
+    stats.appendChild(el('div', 'stat', `<span class="k">Cooldown</span><span class="v">${item.relic.cooldown}s</span>`));
+  }
+  for (const p of item.props) stats.appendChild(el('div', `affix ${p.k === 'rule' ? 'rule' : p.k === 'proc' ? 'proc' : ''}`, highlight(propText(p))));
+  c.appendChild(stats);
+  if (item.family) {
+    const f = FAMILIES[item.family];
+    const v = variantOf(item.family, item.variant);
+    c.appendChild(el('div', 'innate', `${v.desc} ${f.innate} Skill: ${f.skill.name}.`));
+  }
+  if (compareTo?.family && item.family) {
+    const t = tradeoff(compareTo, item);
+    if (t) c.appendChild(el('div', 'innate', t));
+  }
+  if (extra) c.appendChild(extra);
+  return c;
+}
+
+export function boonCard(b: Boon, tag: string): HTMLElement {
+  const c = el('div', `card found r-${b.rarity} ${b.cursed ? 'cursed' : ''}`);
+  c.appendChild(el('div', 'tag', tag.toUpperCase()));
+  const name = el('div', 'name', b.name);
+  name.style.color = b.cursed ? 'var(--bad)' : `var(--r-${b.rarity})`;
+  c.appendChild(name);
+  c.appendChild(el('div', 'rarity', `<span style="color:var(--r-${b.rarity})">${RARITY_LABEL[b.rarity]}</span> ${b.cursed ? 'Pact' : 'Boon'}`));
+  const lead = b.props.find((p) => p.k === 'proc');
+  c.appendChild(el('div', 'art', `<img class="boon-art" src="${boonIconUrl(lead && lead.k === 'proc' ? lead.el : 'none', b.name.length, !!b.cursed, b.props[0]?.k)}" alt="">`));
+  const stats = el('div', 'stats');
+  for (const p of b.props) {
+    const neg = p.k === 'stat' && p.value < 0;
+    stats.appendChild(el('div', `affix ${neg ? 'cost' : p.k === 'rule' ? 'rule' : p.k === 'proc' ? 'proc' : ''}`, highlight(propText(p))));
+  }
+  if (b.gift) stats.appendChild(el('div', 'affix rule', `Receive a powerful ${b.gift === 'relic' ? 'relic' : b.gift} immediately`));
+  c.appendChild(stats);
+  return c;
+}
+
 function statRows(item: Item, other: Item | null): HTMLElement[] {
   const rows: HTMLElement[] = [];
   const cmp = (k: string, v: number, ov: number | null, fmt: (n: number) => string, higherIsBetter = true, cls = '') => {
     let arrow = '';
     if (ov !== null && Math.abs(v - ov) > 1e-6) {
-      const better = (v > ov) === higherIsBetter;
+      const better = v > ov === higherIsBetter;
       arrow = ` <span class="${better ? 'up' : 'down'}">${v > ov ? '▲' : '▼'} ${better ? 'better' : 'worse'}</span>`;
     }
     rows.push(el('div', 'stat', `<span class="k">${k}</span><span class="v ${cls}">${fmt(v)}${arrow}</span>`));
   };
   if (item.slot === 'weapon' && item.family) {
     const o = other?.family ? other : null;
-    const fam = FAMILIES[item.family];
     cmp('Damage per hit', item.damage ?? 0, o ? (o.damage ?? 0) : null, (n) => `${Math.round(n)}`);
-    const rate = attackRate(fam, itemSpeedMul(item));
-    cmp('Attack speed', rate, o ? attackRate(FAMILIES[o.family!], itemSpeedMul(o)) : null, (n) => `${n.toFixed(1)} /s`);
+    cmp('Attack speed', attackRate(item), o ? attackRate(o) : null, (n) => `${n.toFixed(1)} /s`);
     cmp('Sustained damage', sustainedDps(item), o ? sustainedDps(o) : null, (n) => `${Math.round(n)} /s`);
     if (item.element !== 'none') {
       const ob = o && o.element === item.element ? o.buildup : o ? 0 : null;
-      cmp(`${item.element === 'poison' ? 'Poison' : 'Frost'} buildup / hit`, item.buildup, ob, (n) => `+${Math.round(n)}`, true, `el-${item.element}`);
+      const label = item.element2 ? `${EL_STATUS[item.element as 'poison']} + ${EL_STATUS[item.element2 as 'poison']}` : EL_STATUS[item.element as 'poison'];
+      cmp(`${label} buildup / hit`, item.buildup, ob, (n) => `+${Math.round(n)}`, true, `el-${item.element}`);
     } else rows.push(el('div', 'stat', '<span class="k">Element</span><span class="v muted">None</span>'));
-  } else if (item.slot === 'chest') {
+  } else if (item.slot === 'chest' || (item.slot === 'boots' && item.defense)) {
     cmp('Defence', item.defense ?? 0, other ? (other.defense ?? 0) : null, (n) => `${n}`);
+  } else if (item.slot === 'relic' && item.relic) {
+    rows.push(el('div', 'stat', `<span class="k">Active ability</span><span class="v">${RELICS[item.relic.ability].name}</span>`));
   }
   return rows;
 }
@@ -428,7 +482,7 @@ function statRows(item: Item, other: Item | null): HTMLElement[] {
 /** Plain-language summary so a big number never hides lower sustained damage. */
 function tradeoff(from: Item, to: Item): string {
   const d = (to.damage ?? 1) / (from.damage ?? 1);
-  const r = attackRate(FAMILIES[to.family!], itemSpeedMul(to)) / attackRate(FAMILIES[from.family!], itemSpeedMul(from));
+  const r = attackRate(to) / attackRate(from);
   const s = sustainedDps(to) / sustainedDps(from);
   const parts: string[] = [];
   if (d > 1.15) parts.push(`hits ${d.toFixed(1)}× harder`);
@@ -440,20 +494,23 @@ function tradeoff(from: Item, to: Item): string {
   return `vs equipped: ${parts.join(', ')} — ${sus}.`;
 }
 
-function highlight(s: string): string {
+export function highlight(s: string): string {
   return s
-    .replace(/\b(frost|freeze[sd]?|frozen|chill[s]?|shatter[s]?)\b/gi, '<span style="color:var(--frost)">$1</span>')
-    .replace(/\b(poison(?:ed)?|spores?)\b/gi, '<span style="color:var(--poison)">$1</span>');
+    .replace(/\b(frost|freeze[sd]?|frozen|chill(?:s|ed)?|shatter(?:s|ed)?)\b/gi, '<span style="color:var(--frost)">$1</span>')
+    .replace(/\b(poison(?:ed)?|spores?|venom)\b/gi, '<span style="color:var(--poison)">$1</span>')
+    .replace(/\b(fire|burn(?:ing|s)?|flames?|ignite)\b/gi, '<span style="color:var(--burn)">$1</span>')
+    .replace(/\b(storm|shock(?:ed)?|lightning)\b/gi, '<span style="color:var(--shock)">$1</span>')
+    .replace(/\b(arcane)\b/gi, '<span style="color:var(--arcane)">$1</span>');
 }
 
-function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = ''): HTMLElementTagNameMap[K] {
+export function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = ''): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
   if (html) e.innerHTML = html;
   return e;
 }
 
-function button(label: string, cls: string, onClick: () => void): HTMLButtonElement {
+export function button(label: string, cls: string, onClick: () => void): HTMLButtonElement {
   const b = el('button', cls, label);
   b.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -461,5 +518,3 @@ function button(label: string, cls: string, onClick: () => void): HTMLButtonElem
   });
   return b;
 }
-
-export { el, button };

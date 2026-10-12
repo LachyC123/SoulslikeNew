@@ -1,4 +1,4 @@
-import { FAMILIES, Item } from '../data/items';
+import { FAMILIES, Item, RELICS } from '../data/items';
 import { itemIcon } from '../render/icons';
 import { ctx2d } from '../render/pixel';
 import { Renderer } from '../render/renderer';
@@ -31,6 +31,9 @@ export class Hud {
   private attackBtn = $('btn-attack');
   private swapBtn = $('btn-swap');
   private flaskBtn = $('btn-flask');
+  private relicBtn = $('btn-relic');
+  private callouts = $('callouts');
+  private comboEl = $('combo');
   private cache = new Map<string, string | number | boolean>();
   seen: Uint8Array = new Uint8Array(0);
   private seenKey = '';
@@ -95,6 +98,24 @@ export class Hud {
 
   clearToasts(): void {
     this.toasts.innerHTML = '';
+    this.callouts.innerHTML = '';
+  }
+
+  /** Big centred callout text (multi-kills, mythic drops, boss names). */
+  callout(text: string, tier: number): void {
+    for (const c of Array.from(this.callouts.children)) if (c.textContent === text) return;
+    const el = document.createElement('div');
+    el.className = `callout t${tier}`;
+    el.textContent = text;
+    this.callouts.appendChild(el);
+    while (this.callouts.children.length > 2) this.callouts.firstElementChild!.remove();
+    setTimeout(() => el.remove(), 1600 + tier * 300);
+  }
+
+  setFloorMod(text: string): void {
+    const el = document.getElementById('floor-mod')!;
+    el.classList.toggle('hidden', !text);
+    el.textContent = text;
   }
 
   update(world: World, dt: number, bonusHp: number): void {
@@ -154,6 +175,32 @@ export class Hud {
       this.skillBtn.classList.toggle('cooling', cdq > 0);
     });
 
+    // Relic button.
+    const relic = p.loadout.relic;
+    this.set('relic', relic?.uid ?? '', () => {
+      this.relicBtn.classList.toggle('hidden', !relic);
+      drawIcon(this.relicBtn.querySelector('canvas')!, relic);
+      this.relicBtn.title = relic?.relic ? RELICS[relic.relic.ability].name : '';
+    });
+    if (relic?.relic) {
+      const rq = Math.round((p.relicCd / (relic.relic.cooldown * p.build.skillCdMul)) * 40);
+      this.set('rcd', rq, () => {
+        const circle = this.relicBtn.querySelector('circle') as SVGCircleElement;
+        circle.style.strokeDashoffset = `${113 - (113 * Math.max(0, rq)) / 40}`;
+        this.relicBtn.classList.toggle('cooling', rq > 0);
+      });
+    }
+    // Combo meter.
+    const combo = world.combo;
+    this.set('combo', combo, () => {
+      this.comboEl.classList.toggle('on', combo >= 5);
+      this.comboEl.querySelector('b')!.textContent = `${combo}`;
+      this.comboEl.classList.toggle('hot', combo >= 25);
+      this.comboEl.classList.remove('bump');
+      void this.comboEl.offsetWidth;
+      this.comboEl.classList.add('bump');
+    });
+
     // Boss bar.
     const boss = world.boss;
     const showBoss = !!boss && world.bossFight === 'active';
@@ -186,10 +233,10 @@ export class Hud {
       verb = `Inspect ${n.pickup.item!.name}`;
       ax = n.pickup.x;
       ay = n.pickup.y - 32;
-    } else if (n?.kind === 'spring') {
-      verb = 'Drink from spring';
-      ax = n.spring.x;
-      ay = n.spring.y - 20;
+    } else if (n?.kind === 'feature') {
+      verb = n.feature.kind === 'spring' ? 'Drink from spring' : n.feature.kind === 'shrine' ? 'Touch the cursed shrine' : 'Trade with the merchant';
+      ax = n.feature.x;
+      ay = n.feature.y - 30;
     } else if (n?.kind === 'stairs') {
       verb = 'Hold to descend';
       const s = world.stairsCenter();
@@ -269,7 +316,7 @@ export class Hud {
       g.fillRect(Math.round((x / TILE) * px - s / 2), Math.round((y / TILE) * px - s / 2), Math.ceil(s), Math.ceil(s));
     };
     for (const c of world.chests) if (!c.opened) dot(c.x, c.y, c.guarded ? '#c0d0e0' : '#e0b04a', px * 2);
-    for (const s of world.springs) if (!s.used) dot(s.x, s.y, '#5ae0d0', px * 2);
+    for (const s of world.features) if (!s.used || s.kind === 'merchant') dot(s.x, s.y, s.kind === 'spring' ? '#5ae0d0' : s.kind === 'shrine' ? '#c070ff' : '#ffb060', px * 2);
     for (const k of world.pickups) if (k.kind === 'item') dot(k.x, k.y, '#ffffff', px * 1.5);
     if (world.stairsOpen) {
       const s = world.stairsCenter();

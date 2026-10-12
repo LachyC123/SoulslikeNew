@@ -1,6 +1,6 @@
 import { emptyIntent, Intent } from '../sim/world';
 
-type Action = 'attack' | 'dodge' | 'skill' | 'swap' | 'flask' | 'interact' | 'pause' | 'inventory' | 'map';
+type Action = 'attack' | 'dodge' | 'skill' | 'swap' | 'flask' | 'relic' | 'interact' | 'pause' | 'inventory' | 'map';
 
 const KEYMAP: Record<string, Action> = {
   KeyJ: 'attack',
@@ -10,7 +10,8 @@ const KEYMAP: Record<string, Action> = {
   KeyL: 'skill',
   KeyQ: 'swap',
   KeyF: 'flask',
-  KeyR: 'flask',
+  KeyR: 'relic',
+  KeyU: 'relic',
   KeyE: 'interact',
   Enter: 'interact',
   Escape: 'pause',
@@ -148,6 +149,7 @@ export class Input {
     it.skill = this.edges.has('skill');
     it.swap = this.edges.has('swap');
     it.flask = this.edges.has('flask');
+    it.relic = this.edges.has('relic');
     it.interact = this.edges.has('interact');
     it.interactHeld = this.held.has('interact');
     // Aim: mouse when the attack came from the mouse; touch drag-aim; otherwise assisted.
@@ -178,6 +180,7 @@ export class Input {
     skill: HTMLElement;
     flask: HTMLElement;
     swap: HTMLElement;
+    relic: HTMLElement;
     skillCancel: HTMLElement;
   }): void {
     const { joyZone, joyBase, joyKnob } = els;
@@ -271,6 +274,7 @@ export class Input {
       [els.dodge, 'dodge'],
       [els.flask, 'flask'],
       [els.swap, 'swap'],
+      [els.relic, 'relic'],
     ] as const) {
       el.addEventListener('pointerdown', (e) => {
         e.preventDefault();
