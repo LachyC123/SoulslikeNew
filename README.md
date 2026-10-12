@@ -9,6 +9,7 @@ npm install
 npm run dev       # http://localhost:5173 (also exposed on your LAN for phone testing)
 npm test          # generation + combat rule tests
 npm run build     # type-check + production build into dist/
+npm run build:single  # also writes dist/pixel-dungeon.html: one self-contained file for hosting
 ```
 
 It's TypeScript, Vite and Canvas 2D, with no runtime dependencies. All art is pixel art drawn procedurally in code and all audio is synthesised with WebAudio, so the game needs no asset files.
